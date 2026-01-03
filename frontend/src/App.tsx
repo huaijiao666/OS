@@ -12,12 +12,44 @@ import Toast from './components/Toast';
 import { connectSocket, getStats, formatDisk } from './services/api';
 import type { PanelType, SystemStats, LogEntry } from './types';
 
+// 从localStorage加载日志
+function loadLogsFromStorage(): LogEntry[] {
+  try {
+    const saved = localStorage.getItem('os_logs');
+    return saved ? JSON.parse(saved) : [];
+  } catch {
+    return [];
+  }
+}
+
+// 保存日志到localStorage
+function saveLogsToStorage(logs: LogEntry[]) {
+  try {
+    // 只保存最近50条日志
+    const toSave = logs.slice(0, 50);
+    localStorage.setItem('os_logs', JSON.stringify(toSave));
+  } catch {
+    // 忽略存储错误
+  }
+}
+
 function App() {
   const [currentPanel, setCurrentPanel] = useState<PanelType>('dashboard');
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [isOnline, setIsOnline] = useState(false);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>(() => loadLogsFromStorage());
   const [toasts, setToasts] = useState<Array<{ id: number; type: string; message: string }>>([]);
+  // 用于触发文件列表刷新的key
+  const [filesRefreshKey, setFilesRefreshKey] = useState(0);
+
+  // 当logs变化时保存到localStorage
+  useEffect(() => {
+    saveLogsToStorage(logs);
+  }, [logs]);
+  
+  const triggerFilesRefresh = useCallback(() => {
+    setFilesRefreshKey(prev => prev + 1);
+  }, []);
 
   const showToast = useCallback((type: string, message: string) => {
     const id = Date.now();
@@ -77,6 +109,7 @@ function App() {
       if (data.result.success) {
         showToast('success', `文件 ${data.filename} 创建成功`);
         addLog('create', `创建文件 ${data.filename}`);
+        triggerFilesRefresh();
       }
     });
 
@@ -84,6 +117,7 @@ function App() {
       if (data.result.success) {
         showToast('success', `文件 ${data.filename} 修改成功`);
         addLog('write', `修改文件 ${data.filename}`);
+        triggerFilesRefresh();
       }
     });
 
@@ -91,12 +125,26 @@ function App() {
       if (data.result.success) {
         showToast('success', `文件 ${data.filename} 删除成功`);
         addLog('delete', `删除文件 ${data.filename}`);
+        triggerFilesRefresh();
       }
+    });
+    
+    socket.on('directory_created', (data: { dirname: string; result: { success: boolean } }) => {
+      if (data.result.success) {
+        showToast('success', `目录 ${data.dirname} 创建成功`);
+        addLog('create', `创建目录 ${data.dirname}`);
+        triggerFilesRefresh();
+      }
+    });
+    
+    socket.on('directory_changed', () => {
+      triggerFilesRefresh();
     });
 
     socket.on('disk_formatted', (data: { message: string }) => {
       showToast('info', data.message);
       refreshData();
+      triggerFilesRefresh();
     });
 
     refreshData();
@@ -110,9 +158,11 @@ function App() {
       socket.off('file_created');
       socket.off('file_updated');
       socket.off('file_deleted');
+      socket.off('directory_created');
+      socket.off('directory_changed');
       socket.off('disk_formatted');
     };
-  }, [refreshData, showToast, addLog]);
+  }, [refreshData, showToast, addLog, triggerFilesRefresh]);
 
   const panelTitles: Record<PanelType, string> = {
     dashboard: '仪表盘',
@@ -127,11 +177,11 @@ function App() {
   const renderPanel = () => {
     switch (currentPanel) {
       case 'dashboard':
-        return <Dashboard stats={stats} logs={logs} onClearLogs={() => setLogs([])} showToast={showToast} />;
+        return <Dashboard stats={stats} logs={logs} onClearLogs={() => { setLogs([]); localStorage.removeItem('os_logs'); }} showToast={showToast} onFilesChange={triggerFilesRefresh} />;
       case 'files':
-        return <FilesPanel showToast={showToast} addLog={addLog} />;
+        return <FilesPanel key={filesRefreshKey} showToast={showToast} addLog={addLog} />;
       case 'disk':
-        return <DiskPanel />;
+        return <DiskPanel key={filesRefreshKey} />;
       case 'buffer':
         return <BufferPanel showToast={showToast} />;
       case 'process':
@@ -141,7 +191,7 @@ function App() {
       case 'terminal':
         return <TerminalPanel />;
       default:
-        return <Dashboard stats={stats} logs={logs} onClearLogs={() => setLogs([])} showToast={showToast} />;
+        return <Dashboard stats={stats} logs={logs} onClearLogs={() => setLogs([])} showToast={showToast} onFilesChange={triggerFilesRefresh} />;
     }
   };
 

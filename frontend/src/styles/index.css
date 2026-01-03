@@ -682,12 +682,48 @@ body {
     border-radius: var(--radius-lg);
     cursor: pointer;
     transition: all var(--transition-fast);
+    position: relative;
 }
 
 .file-item:hover {
     background: var(--bg-hover);
     border-color: var(--accent-primary);
     transform: translateY(-2px);
+}
+
+.file-delete-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: rgba(239, 68, 68, 0.2);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: all var(--transition-fast);
+}
+
+.file-delete-btn svg {
+    width: 14px;
+    height: 14px;
+    color: var(--danger);
+}
+
+.file-item:hover .file-delete-btn {
+    opacity: 1;
+}
+
+.file-delete-btn:hover {
+    background: var(--danger);
+}
+
+.file-delete-btn:hover svg {
+    color: white;
 }
 
 .file-icon-large {

@@ -38,6 +38,12 @@ export default function BufferPanel({ showToast }: BufferPanelProps) {
   useEffect(() => {
     loadStatus();
     loadLogs();
+    // 自动刷新缓冲区状态
+    const interval = setInterval(() => {
+      loadStatus();
+      loadLogs();
+    }, 2000);
+    return () => clearInterval(interval);
   }, [loadStatus, loadLogs]);
 
   const handleFlush = useCallback(async () => {
@@ -75,18 +81,82 @@ export default function BufferPanel({ showToast }: BufferPanelProps) {
         </div>
 
         <div className="buffer-pages-container">
-          <h3>缓冲页状态 (LRU置换)</h3>
-          <button className="btn-secondary" onClick={handleFlush} style={{ marginBottom: '16px' }}>
-            刷新缓冲区
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+            <h3 style={{ margin: 0 }}>缓冲页状态 (LRU置换)</h3>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                命中率: {stats ? ((stats.hits / (stats.hits + stats.misses) || 0) * 100).toFixed(1) : 0}%
+              </span>
+              <button className="btn-secondary" onClick={loadStatus}>刷新</button>
+              <button className="btn-primary" onClick={handleFlush}>写回脏页</button>
+            </div>
+          </div>
           <div className="buffer-pages">
             {pages.map(page => (
-              <div key={page.page_id} className={`buffer-page ${page.state.toLowerCase()}`}>
-                <div className="page-id">页 #{page.page_id}</div>
-                <div className="page-block">{page.block_id >= 0 ? `块 ${page.block_id}` : '-'}</div>
-                <div className={`page-state ${page.state}`}>{page.state}</div>
+              <div 
+                key={page.page_id} 
+                className={`buffer-page ${page.state.toLowerCase()}`}
+                style={{
+                  position: 'relative',
+                  cursor: 'pointer',
+                  transition: 'transform 0.2s'
+                }}
+                title={`页 #${page.page_id}\n块: ${page.block_id >= 0 ? page.block_id : '无'}\n状态: ${page.state}\n所有者: ${page.owner >= 0 ? `PID ${page.owner}` : '无'}\n访问次数: ${page.access_count}\n数据: ${page.data_preview || '空'}`}
+              >
+                <div className="page-id" style={{ fontWeight: 'bold' }}>页 #{page.page_id}</div>
+                <div className="page-block">{page.block_id >= 0 ? `块 #${page.block_id}` : '空闲'}</div>
+                <div className={`page-state ${page.state}`} style={{
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  fontSize: '10px',
+                  background: page.state === 'DIRTY' ? '#ff4757' : page.state === 'CLEAN' ? '#2ed573' : '#576574',
+                  color: 'white'
+                }}>
+                  {page.state}
+                </div>
+                {page.owner >= 0 && (
+                  <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    PID: {page.owner}
+                  </div>
+                )}
+                {page.is_pinned && (
+                  <div style={{ 
+                    position: 'absolute', 
+                    top: '4px', 
+                    right: '4px', 
+                    fontSize: '10px',
+                    background: '#ffa502',
+                    color: 'white',
+                    padding: '1px 4px',
+                    borderRadius: '4px'
+                  }}>
+                    📌
+                  </div>
+                )}
               </div>
             ))}
+          </div>
+          <div style={{ 
+            marginTop: '12px', 
+            padding: '8px', 
+            background: 'var(--bg-color)', 
+            borderRadius: '8px',
+            fontSize: '12px',
+            color: 'var(--text-secondary)'
+          }}>
+            <strong>图例:</strong>
+            <span style={{ marginLeft: '12px' }}>
+              <span style={{ background: '#576574', color: 'white', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>FREE</span>
+              空闲页
+            </span>
+            <span style={{ marginLeft: '12px' }}>
+              <span style={{ background: '#2ed573', color: 'white', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>CLEAN</span>
+              干净页(与磁盘一致)
+            </span>
+            <span style={{ marginLeft: '12px' }}>
+              <span style={{ background: '#ff4757', color: 'white', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>DIRTY</span>
+              脏页(需写回)
+            </span>
           </div>
         </div>
 

@@ -22,6 +22,8 @@ function formatTime(timestamp: number): string {
 
 export default function FilesPanel({ showToast, addLog }: FilesPanelProps) {
   const [files, setFiles] = useState<FileEntry[]>([]);
+  const [currentPath, setCurrentPath] = useState('/');
+  const [canGoBack, setCanGoBack] = useState(false);
   const [currentFile, setCurrentFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState('');
   const [fileMeta, setFileMeta] = useState<{ size: number; blocks: number[]; create_time: number; modify_time: number } | null>(null);
@@ -33,6 +35,13 @@ export default function FilesPanel({ showToast, addLog }: FilesPanelProps) {
       const data = await listFiles();
       if (data.success) {
         setFiles(data.files || []);
+        // 更新当前路径信息
+        if (data.current_path) {
+          setCurrentPath(data.current_path);
+        }
+        if (typeof data.can_go_back === 'boolean') {
+          setCanGoBack(data.can_go_back);
+        }
       }
     } catch (error) {
       console.error('加载文件列表失败:', error);
@@ -48,10 +57,20 @@ export default function FilesPanel({ showToast, addLog }: FilesPanelProps) {
       try {
         const result = await changeDirectory(filename);
         if (result.success) {
+          if (result.current_path) {
+            setCurrentPath(result.current_path);
+          }
+          if (typeof result.can_go_back === 'boolean') {
+            setCanGoBack(result.can_go_back);
+          }
           loadFiles();
+          addLog('read', `进入目录 ${filename}`);
+        } else {
+          showToast('error', result.error || '切换目录失败');
         }
       } catch (error) {
         console.error('切换目录失败:', error);
+        showToast('error', '切换目录失败');
       }
     } else {
       try {
@@ -65,12 +84,32 @@ export default function FilesPanel({ showToast, addLog }: FilesPanelProps) {
             create_time: data.create_time,
             modify_time: data.modify_time,
           });
+          addLog('read', `打开文件 ${filename}`);
         }
       } catch (error) {
         console.error('打开文件失败:', error);
       }
     }
-  }, [loadFiles]);
+  }, [loadFiles, addLog, showToast]);
+
+  const handleGoBack = useCallback(async () => {
+    try {
+      const result = await changeDirectory('..');
+      if (result.success) {
+        if (result.current_path) {
+          setCurrentPath(result.current_path);
+        }
+        if (typeof result.can_go_back === 'boolean') {
+          setCanGoBack(result.can_go_back);
+        }
+        loadFiles();
+        addLog('read', '返回上级目录');
+      }
+    } catch (error) {
+      console.error('返回上级目录失败:', error);
+      showToast('error', '返回上级目录失败');
+    }
+  }, [loadFiles, addLog, showToast]);
 
   const handleSaveFile = useCallback(async () => {
     if (!currentFile) return;
@@ -108,6 +147,25 @@ export default function FilesPanel({ showToast, addLog }: FilesPanelProps) {
     }
   }, [currentFile, showToast, addLog, loadFiles]);
 
+  const handleDeleteItem = useCallback(async (name: string, isDir: boolean, e: React.MouseEvent) => {
+    e.stopPropagation(); // 阻止冒泡，避免触发点击进入目录
+    const typeText = isDir ? '目录' : '文件';
+    if (!window.confirm(`确定要删除${typeText} "${name}" 吗？${isDir ? '\n（目录必须为空才能删除）' : ''}`)) return;
+
+    try {
+      const result = await deleteFile(name);
+      if (result.success) {
+        showToast('success', `${typeText}删除成功`);
+        addLog('delete', `删除${typeText} ${name}`);
+        loadFiles();
+      } else {
+        showToast('error', result.error || '删除失败');
+      }
+    } catch {
+      showToast('error', '删除失败');
+    }
+  }, [showToast, addLog, loadFiles]);
+
   const handleCreateFile = useCallback(async (filename: string, content: string) => {
     try {
       const result = await createFile(filename, content);
@@ -143,8 +201,20 @@ export default function FilesPanel({ showToast, addLog }: FilesPanelProps) {
       <div className="files-container">
         <div className="files-toolbar">
           <div className="path-breadcrumb">
+            {canGoBack && (
+              <button 
+                className="btn-icon" 
+                onClick={handleGoBack}
+                title="返回上级目录"
+                style={{ marginRight: '8px', width: '32px', height: '32px' }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="15 18 9 12 15 6"/>
+                </svg>
+              </button>
+            )}
             <span className="path-icon">📁</span>
-            <span className="path-text">/root</span>
+            <span className="path-text">{currentPath}</span>
           </div>
           <div className="toolbar-actions">
             <button className="btn-primary" onClick={() => setShowCreateFile(true)}>
@@ -178,6 +248,16 @@ export default function FilesPanel({ showToast, addLog }: FilesPanelProps) {
                   className="file-item"
                   onClick={() => handleOpenFile(file.name, isDir)}
                 >
+                  <button
+                    className="file-delete-btn"
+                    onClick={(e) => handleDeleteItem(file.name, isDir, e)}
+                    title={`删除${isDir ? '目录' : '文件'}`}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="18" y1="6" x2="6" y2="18"/>
+                      <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </button>
                   <div className={`file-icon-large ${isDir ? 'folder' : 'file'}`}>
                     {isDir ? (
                       <svg viewBox="0 0 24 24" fill="currentColor">

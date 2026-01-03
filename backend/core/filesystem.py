@@ -17,6 +17,27 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import *
 from .disk import VirtualDisk
 
+# 全局进度回调（用于可视化）
+_progress_callback = None
+
+def set_progress_callback(callback):
+    """设置进度回调函数"""
+    global _progress_callback
+    _progress_callback = callback
+
+def notify_progress(operation: str, filename: str, current_block: int, total_blocks: int, block_id: int):
+    """通知操作进度"""
+    global _progress_callback
+    if _progress_callback:
+        _progress_callback({
+            'operation': operation,
+            'filename': filename,
+            'current_block': current_block,
+            'total_blocks': total_blocks,
+            'block_id': block_id,
+            'progress': (current_block / total_blocks * 100) if total_blocks > 0 else 100
+        })
+
 
 class FileType(Enum):
     """文件类型枚举"""
@@ -150,6 +171,10 @@ class FileSystem:
         
         # 当前工作目录
         self.current_dir_inode = 0  # 根目录
+        
+        # 目录路径栈（用于支持返回上级目录）
+        self.path_stack: List[str] = []  # 存储路径名
+        self.inode_stack: List[int] = [0]  # 存储inode号，初始为根目录
     
     def _load_inode_bitmap(self):
         """加载iNode使用情况"""
@@ -327,6 +352,55 @@ class FileSystem:
                     self.disk.free_block(single_ptr)
             self.disk.free_block(inode.double_indirect)
     
+    def _free_file_blocks_with_progress(self, inode: INode, filename: str):
+        """释放文件的所有数据块（带进度通知）"""
+        all_blocks = self._get_file_blocks(inode)
+        total = len(all_blocks)
+        
+        # 释放直接索引块
+        block_count = 0
+        for block_id in inode.direct_blocks:
+            if block_id > 0:
+                block_count += 1
+                notify_progress('delete', filename, block_count, total, block_id)
+                self.disk.free_block(block_id)
+                time.sleep(IO_DELAY * 0.5)  # 删除延时（较短）
+        
+        # 释放一级间接索引中的数据块
+        if inode.single_indirect > 0:
+            indirect_data = self.disk.read_block(inode.single_indirect)
+            for i in range(POINTERS_PER_BLOCK):
+                block_id = struct.unpack_from('<H', indirect_data, i * 2)[0]
+                if block_id > 0:
+                    block_count += 1
+                    notify_progress('delete', filename, block_count, total, block_id)
+                    self.disk.free_block(block_id)
+                    time.sleep(IO_DELAY * 0.5)
+            # 释放间接索引块本身
+            self.disk.free_block(inode.single_indirect)
+        
+        # 释放二级间接索引
+        if inode.double_indirect > 0:
+            double_data = self.disk.read_block(inode.double_indirect)
+            for i in range(POINTERS_PER_BLOCK):
+                single_ptr = struct.unpack_from('<H', double_data, i * 2)[0]
+                if single_ptr > 0:
+                    indirect_data = self.disk.read_block(single_ptr)
+                    for j in range(POINTERS_PER_BLOCK):
+                        block_id = struct.unpack_from('<H', indirect_data, j * 2)[0]
+                        if block_id > 0:
+                            block_count += 1
+                            notify_progress('delete', filename, block_count, total, block_id)
+                            self.disk.free_block(block_id)
+                            time.sleep(IO_DELAY * 0.5)
+                    self.disk.free_block(single_ptr)
+            self.disk.free_block(inode.double_indirect)
+        
+        # 清空iNode中的索引
+        inode.direct_blocks = [0] * DIRECT_BLOCKS
+        inode.single_indirect = 0
+        inode.double_indirect = 0
+    
     def _read_directory(self, dir_inode: INode) -> List[DirectoryEntry]:
         """读取目录内容"""
         entries = []
@@ -356,18 +430,21 @@ class FileSystem:
                     self.disk.write_block(block_id, bytes(block_data))
                     return True
         
-        # 需要分配新块
-        new_block = self.disk.allocate_block()
-        if new_block is None:
+        # 需要分配新块给目录
+        # 使用 _allocate_file_blocks 来正确分配并更新 inode 索引
+        new_block_count = len(blocks) + 1
+        if not self._allocate_file_blocks(dir_inode, new_block_count):
             return False
         
-        # 更新iNode索引
-        block_count = len(blocks) + 1
-        if not self._allocate_file_blocks(dir_inode, block_count):
-            self.disk.free_block(new_block)
+        # 重新获取块列表，找到新分配的块
+        new_blocks = self._get_file_blocks(dir_inode)
+        if len(new_blocks) < new_block_count:
             return False
         
-        # 写入新条目
+        # 新块是列表中最后一个
+        new_block = new_blocks[-1]
+        
+        # 写入新条目到新块
         block_data = bytearray(BLOCK_SIZE)
         block_data[:26] = entry.to_bytes()
         self.disk.write_block(new_block, bytes(block_data))
@@ -403,6 +480,39 @@ class FileSystem:
                 return entry.inode_id
         return None
     
+    def _validate_filename(self, filename: str) -> Optional[str]:
+        """
+        验证文件名合法性
+        返回错误信息，如果合法返回None
+        """
+        if not filename:
+            return '文件名不能为空'
+        
+        if filename in ('.', '..'):
+            return '文件名不能是 . 或 ..'
+        
+        # 文件名最大24字节（UTF-8编码）
+        if len(filename.encode('utf-8')) > 24:
+            return '文件名过长（最大24字节）'
+        
+        # 禁止的特殊字符
+        forbidden_chars = ['/', '\\', '\0', ':']
+        for char in forbidden_chars:
+            if char in filename:
+                return f'文件名不能包含特殊字符: {char}'
+        
+        return None
+    
+    def _get_entry_type(self, dir_inode: INode, filename: str) -> Optional[str]:
+        """获取目录项的类型（DIRECTORY或REGULAR），不存在返回None"""
+        inode_id = self._find_in_directory(dir_inode, filename)
+        if inode_id is None:
+            return None
+        file_inode = self._get_inode(inode_id)
+        if not file_inode:
+            return None
+        return file_inode.file_type.name
+    
     def create_file(self, filename: str, content: bytes = b'', 
                     permissions: int = PERM_READ | PERM_WRITE) -> Dict[str, Any]:
         """
@@ -417,14 +527,23 @@ class FileSystem:
             操作结果字典
         """
         with self.lock:
+            # 验证文件名
+            error = self._validate_filename(filename)
+            if error:
+                return {'success': False, 'error': error}
+            
             # 获取当前目录
             dir_inode = self._get_inode(self.current_dir_inode)
             if not dir_inode:
                 return {'success': False, 'error': '当前目录无效'}
             
-            # 检查文件是否已存在
-            if self._find_in_directory(dir_inode, filename):
-                return {'success': False, 'error': f'文件 {filename} 已存在'}
+            # 检查名称是否已存在
+            existing_type = self._get_entry_type(dir_inode, filename)
+            if existing_type:
+                if existing_type == 'DIRECTORY':
+                    return {'success': False, 'error': f'已存在同名目录 "{filename}"，无法创建文件'}
+                else:
+                    return {'success': False, 'error': f'文件 "{filename}" 已存在'}
             
             # 分配iNode
             new_inode_id = self._allocate_inode()
@@ -464,6 +583,10 @@ class FileSystem:
                 block_data = content[start:end]
                 if len(block_data) < BLOCK_SIZE:
                     block_data = block_data + b'\x00' * (BLOCK_SIZE - len(block_data))
+                
+                # 通知进度
+                notify_progress('write', filename, i + 1, len(blocks), block_id)
+                
                 self.disk.write_block(block_id, block_data)
                 time.sleep(IO_DELAY)  # I/O延时，用于可视化
             
@@ -519,6 +642,9 @@ class FileSystem:
                 if block_index >= len(blocks):
                     return {'success': False, 'error': f'块索引 {block_index} 超出范围'}
                 
+                # 通知进度
+                notify_progress('read', filename, 1, 1, blocks[block_index])
+                
                 block_data = self.disk.read_block(blocks[block_index])
                 time.sleep(IO_DELAY)
                 
@@ -531,7 +657,10 @@ class FileSystem:
             else:
                 # 读取全部内容
                 content = bytearray()
-                for block_id in blocks:
+                for i, block_id in enumerate(blocks):
+                    # 通知进度
+                    notify_progress('read', filename, i + 1, len(blocks), block_id)
+                    
                     block_data = self.disk.read_block(block_id)
                     content.extend(block_data)
                     time.sleep(IO_DELAY)
@@ -615,6 +744,10 @@ class FileSystem:
                     block_data = content[start:end]
                     if len(block_data) < BLOCK_SIZE:
                         block_data = block_data + b'\x00' * (BLOCK_SIZE - len(block_data))
+                    
+                    # 通知进度
+                    notify_progress('write', filename, i + 1, len(blocks), block_id)
+                    
                     self.disk.write_block(block_id, block_data)
                     time.sleep(IO_DELAY)
                 
@@ -642,33 +775,50 @@ class FileSystem:
             操作结果
         """
         with self.lock:
+            # 验证文件名
+            if not filename or filename in ('.', '..'):
+                return {'success': False, 'error': '无效的文件名'}
+            
             dir_inode = self._get_inode(self.current_dir_inode)
             if not dir_inode:
                 return {'success': False, 'error': '当前目录无效'}
             
             inode_id = self._find_in_directory(dir_inode, filename)
             if inode_id is None:
-                return {'success': False, 'error': f'文件 {filename} 不存在'}
+                return {'success': False, 'error': f'"{filename}" 不存在'}
+            
+            # 检查是否试图删除当前工作路径中的目录
+            if inode_id in self.inode_stack:
+                return {'success': False, 'error': f'无法删除 "{filename}"：目录正在使用中'}
             
             # 检查文件是否正在被使用（文件保护）
             if inode_id in self.open_files:
-                return {'success': False, 'error': f'文件 {filename} 正在被使用，无法删除'}
+                return {'success': False, 'error': f'"{filename}" 正在被使用，无法删除'}
             
             file_inode = self._get_inode(inode_id)
             if not file_inode:
-                return {'success': False, 'error': f'无法读取文件 {filename} 的iNode'}
+                return {'success': False, 'error': f'无法读取 "{filename}" 的信息'}
             
             if file_inode.file_type == FileType.DIRECTORY:
                 # 检查目录是否为空
                 entries = self._read_directory(file_inode)
                 if entries:
-                    return {'success': False, 'error': f'目录 {filename} 不为空'}
+                    return {'success': False, 'error': f'目录 "{filename}" 不为空，请先删除目录内的文件'}
             
-            # 释放文件数据块
-            self._free_file_blocks(file_inode)
+            # 获取要释放的块列表（用于返回信息）
+            blocks_to_free = self._get_file_blocks(file_inode)
+            
+            # 通知开始删除
+            notify_progress('delete', filename, 0, len(blocks_to_free) + 1, inode_id)
+            
+            # 释放文件数据块（带进度通知）
+            self._free_file_blocks_with_progress(file_inode, filename)
             
             # 释放iNode
             self._free_inode(inode_id)
+            
+            # 通知iNode释放
+            notify_progress('delete', filename, len(blocks_to_free) + 1, len(blocks_to_free) + 1, inode_id)
             
             # 从目录中移除条目
             self._remove_directory_entry(dir_inode, filename)
@@ -676,7 +826,9 @@ class FileSystem:
             return {
                 'success': True,
                 'message': f'文件 {filename} 删除成功',
-                'freed_inode': inode_id
+                'freed_inode': inode_id,
+                'freed_blocks': blocks_to_free,
+                'freed_block_count': len(blocks_to_free)
             }
     
     def list_directory(self) -> Dict[str, Any]:
@@ -710,9 +862,14 @@ class FileSystem:
                         'modify_time': file_inode.modify_time
                     })
             
+            # 计算当前路径
+            current_path = '/' + '/'.join(self.path_stack) if self.path_stack else '/'
+            
             return {
                 'success': True,
                 'current_inode': self.current_dir_inode,
+                'current_path': current_path,
+                'can_go_back': len(self.inode_stack) > 1,
                 'files': files,
                 'total': len(files)
             }
@@ -720,12 +877,22 @@ class FileSystem:
     def create_directory(self, dirname: str) -> Dict[str, Any]:
         """创建目录"""
         with self.lock:
+            # 验证目录名
+            error = self._validate_filename(dirname)
+            if error:
+                return {'success': False, 'error': error}
+            
             dir_inode = self._get_inode(self.current_dir_inode)
             if not dir_inode:
                 return {'success': False, 'error': '当前目录无效'}
             
-            if self._find_in_directory(dir_inode, dirname):
-                return {'success': False, 'error': f'目录 {dirname} 已存在'}
+            # 检查名称是否已存在
+            existing_type = self._get_entry_type(dir_inode, dirname)
+            if existing_type:
+                if existing_type == 'DIRECTORY':
+                    return {'success': False, 'error': f'目录 "{dirname}" 已存在'}
+                else:
+                    return {'success': False, 'error': f'已存在同名文件 "{dirname}"，无法创建目录'}
             
             # 分配iNode
             new_inode_id = self._allocate_inode()
@@ -771,8 +938,28 @@ class FileSystem:
         """切换目录"""
         with self.lock:
             if dirname == '..':
-                # 返回上级目录（简化实现，需要维护目录树）
-                return {'success': False, 'error': '暂不支持返回上级目录'}
+                # 返回上级目录
+                if len(self.inode_stack) <= 1:
+                    # 已经在根目录
+                    return {
+                        'success': True,
+                        'current_inode': 0,
+                        'current_path': '/',
+                        'message': '已在根目录'
+                    }
+                
+                # 弹出当前目录
+                self.inode_stack.pop()
+                self.path_stack.pop()
+                self.current_dir_inode = self.inode_stack[-1]
+                
+                current_path = '/' + '/'.join(self.path_stack) if self.path_stack else '/'
+                return {
+                    'success': True,
+                    'current_inode': self.current_dir_inode,
+                    'current_path': current_path,
+                    'message': '返回上级目录'
+                }
             
             dir_inode = self._get_inode(self.current_dir_inode)
             if not dir_inode:
@@ -787,9 +974,15 @@ class FileSystem:
                 return {'success': False, 'error': f'{dirname} 不是目录'}
             
             self.current_dir_inode = target_inode_id
+            # 更新路径栈
+            self.path_stack.append(dirname)
+            self.inode_stack.append(target_inode_id)
+            
+            current_path = '/' + '/'.join(self.path_stack)
             return {
                 'success': True,
                 'current_inode': self.current_dir_inode,
+                'current_path': current_path,
                 'message': f'切换到目录 {dirname}'
             }
     
@@ -899,4 +1092,22 @@ class FileSystem:
                 'block_size': BLOCK_SIZE,
                 'open_files': len(self.open_files)
             }
+    
+    def get_current_path(self) -> Dict[str, Any]:
+        """获取当前工作目录路径"""
+        with self.lock:
+            current_path = '/' + '/'.join(self.path_stack) if self.path_stack else '/'
+            return {
+                'success': True,
+                'current_path': current_path,
+                'current_inode': self.current_dir_inode,
+                'can_go_back': len(self.inode_stack) > 1
+            }
+    
+    def reset_to_root(self):
+        """重置到根目录"""
+        with self.lock:
+            self.current_dir_inode = 0
+            self.path_stack = []
+            self.inode_stack = [0]
 

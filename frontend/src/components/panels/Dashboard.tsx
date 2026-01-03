@@ -9,9 +9,10 @@ interface DashboardProps {
   logs: LogEntry[];
   onClearLogs: () => void;
   showToast: (type: string, message: string) => void;
+  onFilesChange?: () => void;
 }
 
-export default function Dashboard({ stats, logs, onClearLogs, showToast }: DashboardProps) {
+export default function Dashboard({ stats, logs, onClearLogs, showToast, onFilesChange }: DashboardProps) {
   const [schedulerRunning, setSchedulerRunning] = useState(false);
   const [showCreateFile, setShowCreateFile] = useState(false);
   const [showCreateDir, setShowCreateDir] = useState(false);
@@ -48,26 +49,28 @@ export default function Dashboard({ stats, logs, onClearLogs, showToast }: Dashb
       const result = await createFile(filename, content);
       if (result.success) {
         showToast('success', `文件 ${filename} 创建成功`);
+        onFilesChange?.();
       } else {
         showToast('error', result.error || '创建失败');
       }
     } catch {
       showToast('error', '创建失败');
     }
-  }, [showToast]);
+  }, [showToast, onFilesChange]);
 
   const handleCreateDir = useCallback(async (dirname: string) => {
     try {
       const result = await createDirectory(dirname);
       if (result.success) {
         showToast('success', `目录 ${dirname} 创建成功`);
+        onFilesChange?.();
       } else {
         showToast('error', result.error || '创建失败');
       }
     } catch {
       showToast('error', '创建失败');
     }
-  }, [showToast]);
+  }, [showToast, onFilesChange]);
 
   const diskUsage = stats?.disk 
     ? ((stats.disk.used_blocks / stats.disk.total_blocks) * 100).toFixed(1)

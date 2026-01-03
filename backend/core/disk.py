@@ -119,13 +119,23 @@ class VirtualDisk:
     
     def _init_inodes(self):
         """初始化iNode区"""
-        # 创建根目录的iNode（iNode 0）
+        # 为根目录分配一个数据块
+        root_block = self.allocate_block()
+        if root_block is None:
+            root_block = DATA_START_BLOCK  # 备用：直接使用数据区第一块
+            self._set_bit(root_block, True)
+            self._save_bitmap()
+        
+        # 初始化根目录数据块（空目录）
+        self._write_block(root_block, b'\x00' * BLOCK_SIZE)
+        
+        # 创建根目录的iNode（iNode 0），包含一个数据块
         root_inode = self._create_inode(
             inode_id=0,
             file_type=1,  # 1=目录
             permissions=PERM_READ | PERM_WRITE | PERM_EXECUTE,
             size=0,
-            blocks=[]
+            blocks=[root_block]
         )
         self._write_inode(0, root_inode)
     

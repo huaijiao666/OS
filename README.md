@@ -2,481 +2,343 @@
 
 ## 📖 项目简介
 
-本项目是一个完整的操作系统文件系统模拟器，用于模拟实现操作系统的核心功能，包括磁盘管理、文件系统、内存缓冲、进程管理和调度等。该项目采用现代化的Web技术栈，提供美观的可视化界面和良好的人机交互体验。
+本项目是一个完整的操作系统文件系统模拟器，用于模拟实现操作系统的核心功能，包括磁盘管理、文件系统、内存缓冲、进程管理和调度等。该项目采用现代化的 Web 技术栈，提供美观的可视化界面和良好的人机交互体验。
 
-### 选择的实现方案
+### 实现方案
 
 | 模块         | 实现方式       |
 | ------------ | -------------- |
-| 文件访问方式 | 非阻塞I/O      |
-| 通信模式     | 共享内存       |
+| 数据组织     | 混合索引方式   |
+| 空闲块管理   | 位示图法       |
+| 文件访问方式 | 非阻塞 I/O     |
+| 进程通信     | 共享内存       |
 | 同步机制     | 条件变量       |
 | 调度策略     | 时间片轮转(RR) |
-| 磁盘组织方式 | 位图+索引      |
 
-## 🏗️ 项目架构
+## 🏗️ 项目结构
 
 ```
-OS-Project/
-├── backend/                  # Flask 后端（纯 API + WebSocket）
-│   ├── app.py               # 主入口，提供 /api/* 与 Socket.IO
-│   ├── config.py            # 全局配置
-│   ├── core/                # 内核模拟模块（磁盘/文件系统/进程/调度/IPC）
-│   └── pyproject.toml       # Python 依赖与配置
-└── frontend/                # React 前端（Vite + TypeScript）
-    ├── index.html           # Vite 入口文件
-    ├── package.json         # 前端依赖与脚本
-    ├── vite.config.ts       # 开发代理到 http://localhost:3456
-    └── src/                 # 组件与样式
-        ├── App.tsx
-        ├── components/
-        ├── services/api.ts  # 与后端交互
-        └── styles/index.css # 迁移的原样式表
+OS/
+├── backend/                    # Python 后端 (Flask + SocketIO)
+│   ├── app.py                 # Flask 主应用，提供 RESTful API 和 WebSocket
+│   ├── config.py              # 全局配置（磁盘参数、缓冲区大小等）
+│   ├── main.py                # 备用入口
+│   ├── virtual_disk.bin       # 虚拟磁盘文件（运行时自动生成）
+│   └── core/                  # 核心模块
+│       ├── __init__.py
+│       ├── disk.py            # 虚拟磁盘模块（位图管理）
+│       ├── filesystem.py      # 文件系统模块（iNode、目录、混合索引）
+│       ├── buffer.py          # 内存缓冲模块（LRU 页面置换）
+│       ├── process.py         # 进程管理模块（PCB、状态转换）
+│       ├── scheduler.py       # 调度器模块（时间片轮转 RR）
+│       └── ipc.py             # 进程通信模块（共享内存、条件变量）
+│
+├── frontend/                   # React 前端 (Vite + TypeScript)
+│   ├── index.html             # Vite 入口
+│   ├── package.json           # 前端依赖
+│   ├── vite.config.ts         # Vite 配置（代理 /api 到后端）
+│   ├── tsconfig.json          # TypeScript 配置
+│   └── src/
+│       ├── App.tsx            # 主应用组件
+│       ├── main.tsx           # 入口文件
+│       ├── components/        # UI 组件
+│       │   ├── Sidebar.tsx    # 侧边栏导航
+│       │   ├── TopBar.tsx     # 顶部工具栏
+│       │   ├── Modal.tsx      # 模态框组件
+│       │   ├── Toast.tsx      # 消息提示组件
+│       │   └── panels/        # 功能面板
+│       │       ├── Dashboard.tsx      # 仪表盘
+│       │       ├── FilesPanel.tsx     # 文件管理
+│       │       ├── DiskPanel.tsx      # 磁盘可视化
+│       │       ├── BufferPanel.tsx    # 缓冲区管理
+│       │       ├── ProcessPanel.tsx   # 进程管理
+│       │       ├── SchedulerPanel.tsx # 调度器
+│       │       └── TerminalPanel.tsx  # 终端
+│       ├── services/
+│       │   └── api.ts         # API 服务（HTTP + WebSocket）
+│       ├── types/
+│       │   └── index.ts       # TypeScript 类型定义
+│       └── styles/
+│           └── index.css      # 全局样式
+│
+└── docs/                       # 文档目录
+    ├── 题目.md                # 课设题目要求
+    ├── 报告模板.md            # 报告格式模板
+    ├── 使用说明.md            # 系统使用手册
+    └── 课设报告.md            # 完整课设报告
 ```
 
 ## 🔧 技术栈
 
 ### 后端
 
-- **Python 3.8+** - 主要编程语言
-- **Flask** - Web框架
-- **Flask-SocketIO** - WebSocket实时通信
-- **Flask-CORS** - 跨域支持
-- **threading** - 多线程支持
+| 技术              | 用途           |
+| ----------------- | -------------- |
+| Python 3.8+       | 主要编程语言   |
+| Flask             | Web 框架       |
+| Flask-SocketIO    | WebSocket 通信 |
+| Flask-CORS        | 跨域支持       |
+| threading         | 多线程/同步    |
 
 ### 前端
 
-- **React + TypeScript (Vite)** - 组件化单页应用
-- **Socket.IO Client** - WebSocket 客户端
-- **CSS Grid/Flexbox** - 现代布局
-- **CSS Variables** - 主题定制
+| 技术              | 用途           |
+| ----------------- | -------------- |
+| React 18          | UI 框架        |
+| TypeScript        | 类型安全       |
+| Vite              | 构建工具       |
+| Socket.IO Client  | WebSocket 客户端 |
+| CSS Grid/Flexbox  | 现代布局       |
 
 ## 📦 安装与运行
 
-### 1. 环境要求
+### 环境要求
 
-- Python 3.8 或更高版本
-- pip 包管理器
+- Python 3.8+
+- Node.js 16+
+- npm 或 yarn
 
-### 2. 安装依赖
+### 安装依赖
 
 ```bash
-# 后端
+# 后端依赖
 cd backend
-uv sync
-uv run app.py
+pip install flask flask-cors flask-socketio
 
-# 前端
+# 前端依赖
 cd ../frontend
 npm install
 ```
 
-### 3. 启动服务
+### 启动服务
 
 ```bash
-# 后端 API (Flask + Socket.IO)
+# 终端 1：启动后端（端口 3456）
 cd backend
-python app.py  # 默认监听 http://localhost:3456
+python app.py
 
-# 前端 (Vite 开发服务器)
-cd ../frontend
-npm run dev    # 默认 http://localhost:5173，经 vite.config.ts 代理 /api 与 /socket.io
+# 终端 2：启动前端（端口 5173）
+cd frontend
+npm run dev
 ```
 
-### 4. 访问界面
+### 访问系统
 
-浏览器打开 http://localhost:5173 （生产环境请先 npm run build 再用静态服务器托管 dist/）
+浏览器打开 http://localhost:5173
 
-## 🎯 功能模块详解
+## 🎯 核心模块
 
-### 1. 虚拟磁盘模块 (disk.py)
+### 1. 虚拟磁盘 (disk.py)
 
-#### 磁盘结构
+**磁盘规格：**
+- 块大小：64 字节 (M=64)
+- 块数量：1024 块 (N=1024)
+- 总容量：64 KB
 
-- **总大小**: 64KB (1024块 × 64字节/块)
-- **布局**:
-  - 块0: 超级块
-  - 块1-2: 位图区
-  - 块3-34: iNode区
-  - 块35-1023: 数据区
-
-#### 核心功能
-
-```python
-class VirtualDisk:
-    def allocate_block() -> int          # 分配空闲块
-    def free_block(block_id: int)        # 释放块
-    def read_block(block_id: int) -> bytes   # 读块
-    def write_block(block_id: int, data: bytes)  # 写块
-    def get_bitmap_status() -> List[bool]    # 获取位图状态
+**磁盘布局：**
+```
+┌──────────┬──────────┬──────────────┬─────────────────────┐
+│  超级块   │  位图区   │    iNode区    │       数据区         │
+│  (1块)   │  (2块)   │   (32块)     │     (989块)         │
+│  块 0    │ 块 1-2   │  块 3-34     │    块 35-1023       │
+└──────────┴──────────┴──────────────┴─────────────────────┘
 ```
 
-#### 位图管理算法
+**位示图管理：**
+- 每个 bit 对应一个磁盘块
+- 0 = 空闲，1 = 已使用
+- 支持块的分配与释放
 
+### 2. 文件系统 (filesystem.py)
+
+**iNode 结构（64 字节）：**
+
+| 偏移    | 大小 | 字段           |
+| ------- | ---- | -------------- |
+| 0-1     | 2B   | iNode ID       |
+| 2       | 1B   | 文件类型       |
+| 3       | 1B   | 权限 (rwx)     |
+| 4-7     | 4B   | 文件大小       |
+| 8-15    | 8B   | 创建时间       |
+| 16-23   | 8B   | 修改时间       |
+| 24-25   | 2B   | 链接计数       |
+| 26-37   | 12B  | 直接索引 (6个) |
+| 38-39   | 2B   | 一级间接索引   |
+| 40-41   | 2B   | 二级间接索引   |
+| 42-63   | 22B  | 保留           |
+
+**混合索引：**
+- 直接索引：6 块 × 64B = 384B
+- 一级间接：32 块 × 64B = 2KB
+- 二级间接：32 × 32 块 × 64B = 64KB
+- 最大文件：约 66KB
+
+**目录项（26 字节）：**
+- 文件名：24 字节 (UTF-8)
+- iNode 号：2 字节
+
+### 3. 内存缓冲 (buffer.py)
+
+**缓冲区规格：**
+- 页数量：16 页 (K=16)
+- 页大小：64 字节（与块大小相同）
+
+**页面状态：**
+- FREE：空闲页
+- CLEAN：干净页（与磁盘一致）
+- DIRTY：脏页（已修改未写回）
+
+**LRU 置换算法：**
+1. 选择 access_time 最小的未钉住页
+2. 若为脏页，先写回磁盘
+3. 加载新页面到该位置
+
+### 4. 进程管理 (process.py)
+
+**进程状态：**
 ```
-位图采用字节数组存储，每个bit对应一个磁盘块
-- 0 表示空闲
-- 1 表示已使用
-
-分配算法：线性扫描找到第一个空闲位
-时间复杂度：O(N)，N为总块数
-```
-
-### 2. 文件系统模块 (filesystem.py)
-
-#### iNode结构 (64字节)
-
-| 偏移  | 大小 | 字段                              |
-| ----- | ---- | --------------------------------- |
-| 0-1   | 2B   | iNode ID                          |
-| 2     | 1B   | 文件类型 (0=空闲, 1=目录, 2=文件) |
-| 3     | 1B   | 权限 (rwx)                        |
-| 4-7   | 4B   | 文件大小                          |
-| 8-15  | 8B   | 创建时间                          |
-| 16-23 | 8B   | 修改时间                          |
-| 24-25 | 2B   | 链接计数                          |
-| 26-37 | 12B  | 直接索引块 (6个)                  |
-| 38-39 | 2B   | 一级间接索引                      |
-| 40-41 | 2B   | 二级间接索引                      |
-| 42-63 | 22B  | 保留                              |
-
-#### 混合索引结构
-
-```
-文件块索引采用混合索引方式：
-- 直接索引：6个直接块指针，可寻址 6×64B = 384B
-- 一级间接：1个间接块指针，可寻址 32×64B = 2KB
-- 二级间接：1个二级间接块指针，可寻址 32×32×64B = 64KB
-
-最大文件大小：384B + 2KB + 64KB ≈ 66KB
-```
-
-#### 目录项结构 (26字节)
-
-| 偏移  | 大小 | 字段           |
-| ----- | ---- | -------------- |
-| 0-23  | 24B  | 文件名 (UTF-8) |
-| 24-25 | 2B   | iNode号        |
-
-#### 文件操作API
-
-```python
-class FileSystem:
-    def create_file(filename, content, permissions)  # 创建文件
-    def read_file(filename, block_index)             # 读取文件
-    def write_file(filename, content, block_index)   # 修改文件
-    def delete_file(filename)                        # 删除文件
-    def list_directory()                             # 列目录
-    def create_directory(dirname)                    # 创建目录
-    def open_file(filename, process_id, mode)        # 打开文件
-    def close_file(filename, process_id)             # 关闭文件
+NEW → READY ⇄ RUNNING → TERMINATED
+        ↓        ↓
+     BLOCKED ←───┘
 ```
 
-#### 非阻塞I/O实现
+**进程控制块 (PCB)：**
+- pid：进程 ID
+- name：进程名称
+- state：进程状态
+- command：命令类型
+- time_slice：时间片
+- remaining_time：剩余时间片
 
-```python
-def open_file(self, filename, process_id, mode):
-    # 非阻塞I/O：如果文件被占用，立即返回而不等待
-    if inode_id in self.open_files:
-        existing = self.open_files[inode_id]
-        if 'w' in existing['mode'] or 'w' in mode:
-            return {
-                'success': False,
-                'would_block': True  # 非阻塞标志
-            }
-```
+### 5. 调度器 (scheduler.py)
 
-### 3. 内存缓冲模块 (buffer.py)
+**时间片轮转 (RR)：**
+- 默认时间片：100ms
+- 就绪队列：FIFO
+- 时间片用完后放回队尾
 
-#### 缓冲页结构
+### 6. 进程通信 (ipc.py)
 
-```python
-@dataclass
-class BufferPage:
-    page_id: int           # 缓冲页ID
-    block_id: int          # 对应磁盘块号
-    owner_process: int     # 所有者进程
-    data: bytearray        # 页面数据
-    state: PageState       # FREE/CLEAN/DIRTY
-    access_time: float     # 最后访问时间
-    is_pinned: bool        # 是否钉住
-```
+**共享内存：**
+- 支持创建/销毁共享内存段
+- 读者-写者同步（条件变量）
 
-#### 配置参数
+**同步机制：**
+- threading.RLock：可重入锁
+- threading.Condition：条件变量
 
-- 缓冲页数量 K = 16
-- 每页大小 = 64B（与磁盘块相同）
+## 🖥️ 功能面板
 
-#### LRU页面置换算法
+| 面板       | 功能                           |
+| ---------- | ------------------------------ |
+| 仪表盘     | 系统状态总览、操作日志         |
+| 文件管理   | 文件/目录的创建、查看、修改、删除 |
+| 磁盘可视化 | 位图显示、块内容查看           |
+| 内存缓冲   | 缓冲页状态、置换日志、统计信息 |
+| 进程管理   | 进程列表、状态监控             |
+| 调度器     | 调度控制、事件日志、时间片设置 |
+| 终端       | 命令行界面操作                 |
 
-```python
-def _find_victim_lru(self) -> Optional[int]:
-    """
-    LRU算法选择牺牲页：
-    1. 遍历所有未钉住的页面
-    2. 选择access_time最小的页面
-    3. 如果页面是脏页，先写回磁盘
-    """
-    victim = None
-    oldest_time = float('inf')
-  
-    for i, page in enumerate(self.pages):
-        if page.is_pinned:
-            continue
-        if page.state != PageState.FREE and page.access_time < oldest_time:
-            oldest_time = page.access_time
-            victim = i
-  
-    return victim
-```
+## 💻 终端命令
 
-#### 条件变量同步
+| 命令                    | 说明           |
+| ----------------------- | -------------- |
+| `ls`                    | 列出目录内容   |
+| `cd <dir>`              | 切换目录       |
+| `cd ..`                 | 返回上级目录   |
+| `pwd`                   | 显示当前路径   |
+| `mkdir <dir>`           | 创建目录       |
+| `touch <file>`          | 创建空文件     |
+| `cat <file>`            | 查看文件内容   |
+| `write <file> <content>`| 写入文件       |
+| `rm <file>`             | 删除文件/目录  |
+| `info <file>`           | 查看文件信息   |
+| `clear`                 | 清屏           |
+| `help`                  | 显示帮助       |
 
-```python
-class BufferManager:
-    def __init__(self):
-        self.lock = threading.RLock()
-        self.condition = threading.Condition(self.lock)
-  
-    def wait_for_page(self, block_id, process_id, timeout=None):
-        """使用条件变量等待页面可用"""
-        with self.condition:
-            while True:
-                page_id = self.get_page(block_id, process_id)
-                if page_id is not None:
-                    return page_id
-                self.condition.wait(timeout)
-```
+## 📊 API 接口
 
-### 4. 进程管理模块 (process.py)
+### 文件系统 API
 
-#### 进程控制块 (PCB)
+| 方法   | 路径                    | 功能       |
+| ------ | ----------------------- | ---------- |
+| GET    | /api/files              | 获取文件列表 |
+| POST   | /api/files              | 创建文件   |
+| GET    | /api/files/:filename    | 读取文件   |
+| PUT    | /api/files/:filename    | 修改文件   |
+| DELETE | /api/files/:filename    | 删除文件   |
+| POST   | /api/mkdir              | 创建目录   |
+| POST   | /api/cd                 | 切换目录   |
+| GET    | /api/pwd                | 获取当前路径 |
 
-```python
-@dataclass
-class Process:
-    pid: int                    # 进程ID
-    name: str                   # 进程名称
-    state: ProcessState         # NEW/READY/RUNNING/BLOCKED/TERMINATED
-    command: CommandType        # 命令类型
-    args: Dict[str, Any]        # 命令参数
-    result: Any                 # 执行结果
-    time_slice: int             # 分配的时间片
-    remaining_time: int         # 剩余时间片
-```
+### 磁盘 API
 
-#### 进程状态转换
+| 方法   | 路径                    | 功能       |
+| ------ | ----------------------- | ---------- |
+| GET    | /api/disk/info          | 磁盘信息   |
+| GET    | /api/disk/bitmap        | 位图状态   |
+| GET    | /api/disk/block/:id     | 读取块     |
+| POST   | /api/disk/format        | 格式化磁盘 |
 
-```
-     ┌─────────────────────────────┐
-     │                             ▼
-   NEW ──► READY ◄──► RUNNING ──► TERMINATED
-             │            │
-             │            ▼
-             └───────► BLOCKED
-                          │
-                          └──────────┘
-```
+### 缓冲区 API
 
-### 5. 共享内存模块 (ipc.py)
+| 方法   | 路径                    | 功能       |
+| ------ | ----------------------- | ---------- |
+| GET    | /api/buffer/status      | 缓冲区状态 |
+| GET    | /api/buffer/log         | 置换日志   |
+| POST   | /api/buffer/flush       | 刷新缓冲区 |
 
-#### 共享内存实现
+### 进程/调度器 API
 
-```python
-class SharedMemorySegment:
-    def __init__(self, key: int, size: int):
-        self.data = bytearray(size)
-        self.lock = threading.RLock()
-        self.condition = threading.Condition(self.lock)
-        self.readers = 0
-        self.writers = 0
-  
-    def read(self, offset, length, process_id):
-        """读者-写者问题：允许多个读者同时读"""
-        with self.condition:
-            while self.writers > 0:
-                self.condition.wait()
-            self.readers += 1
-        # ... 读取数据 ...
-  
-    def write(self, offset, data, process_id):
-        """写者需要独占访问"""
-        with self.condition:
-            while self.readers > 0 or self.writers > 0:
-                self.condition.wait()
-            self.writers += 1
-        # ... 写入数据 ...
-```
+| 方法   | 路径                    | 功能       |
+| ------ | ----------------------- | ---------- |
+| GET    | /api/processes          | 进程列表   |
+| POST   | /api/processes          | 创建进程   |
+| GET    | /api/scheduler/status   | 调度器状态 |
+| POST   | /api/scheduler/start    | 启动调度器 |
+| POST   | /api/scheduler/stop     | 停止调度器 |
 
-### 6. RR调度器模块 (scheduler.py)
+## 🔒 同步机制
 
-#### 时间片轮转算法
+### 条件变量应用
 
-```python
-class RRScheduler:
-    def __init__(self, process_manager, time_quantum=100):
-        self.time_quantum = time_quantum  # 默认100ms
-        self.ready_queue: List[int] = []  # 就绪队列
-  
-    def _scheduler_loop(self):
-        while self.state == SchedulerState.RUNNING:
-            next_pid = self._select_next_process()
-          
-            if next_pid is None:
-                # 空闲等待
-                continue
-          
-            # 调度进程运行
-            self._dispatch(next_pid)
-          
-            # 运行一个时间片
-            self._run_time_slice()
-  
-    def _run_time_slice(self):
-        """运行一个时间片后抢占"""
-        time.sleep(self.time_quantum / 1000.0)
-      
-        if process.state == ProcessState.RUNNING:
-            # 时间片用完，放回队列尾部
-            self._preempt_current()
-```
+1. **缓冲区管理** - 等待空闲页面
+2. **共享内存** - 读者-写者问题
+3. **进程同步** - 等待进程完成
 
-#### RR调度流程
+### 文件保护
 
-```
-1. 从就绪队列头部取出进程
-2. 分配CPU给该进程
-3. 运行一个时间片
-4. 时间片用完后：
-   - 如果进程完成：标记为TERMINATED
-   - 如果进程阻塞：放入阻塞队列
-   - 否则：放回就绪队列尾部
-5. 重复步骤1
-```
+- 打开的文件无法删除
+- 写模式互斥访问
+- 非阻塞 I/O 立即返回
 
-## 🖥️ 前端界面
-
-### 功能面板
-
-1. **仪表盘** - 系统状态总览
-2. **文件管理** - 文件的增删改查
-3. **磁盘可视化** - 位图显示磁盘块使用情况
-4. **内存缓冲** - 缓冲页状态和置换日志
-5. **进程管理** - 进程列表和状态
-6. **调度器** - RR调度器控制和事件
-7. **终端** - 命令行界面
-
-### 终端命令
-
-```
-ls              - 列出当前目录文件
-cat <file>      - 查看文件内容
-touch <file> [content] - 创建文件
-rm <file>       - 删除文件
-mkdir <dir>     - 创建目录
-cd <dir>        - 切换目录
-info <file>     - 查看文件信息
-disk            - 查看磁盘状态
-buffer          - 查看缓冲区状态
-ps              - 查看进程列表
-clear           - 清空终端
-help            - 显示帮助
-```
-
-## 📊 可视化特性
-
-### 磁盘位图可视化
-
-- 不同颜色区分：超级块(红)、位图(橙)、iNode区(紫)、已用块(青)、空闲块(灰)
-- 点击块查看十六进制和文本内容
-- 实时更新显示
-
-### 缓冲区可视化
-
-- 显示16个缓冲页状态
-- 颜色区分：空闲/干净/脏页
-- 置换日志实时显示
-
-### 调度器可视化
-
-- 就绪队列显示
-- 调度事件时间线
-- CPU利用率统计
-
-## 🔒 同步与互斥机制
-
-### 条件变量使用场景
-
-1. **缓冲区管理**
-
-   - 等待空闲缓冲页
-   - 页面写回完成通知
-2. **共享内存访问**
-
-   - 读者-写者问题
-   - 写者独占访问
-3. **进程同步**
-
-   - 等待进程完成
-   - 就绪队列通知
-
-### 锁的使用
-
-- `threading.RLock()` - 可重入锁，防止死锁
-- `threading.Condition()` - 条件变量
-
-## 📈 性能指标
-
-系统提供以下性能统计：
+## 📈 统计信息
 
 - 磁盘使用率
 - 缓冲区命中率
 - 页面置换次数
 - 上下文切换次数
-- CPU利用率
-
-## 🧪 测试方法
-
-### 功能测试
-
-1. 创建/删除文件
-2. 读写文件内容
-3. 目录操作
-4. 并发文件访问
-
-### 性能测试
-
-1. 大文件读写
-2. 多进程并发
-3. 缓冲区压力测试
+- CPU 利用率
 
 ## ⚠️ 注意事项
 
-1. 虚拟磁盘文件 `virtual_disk.bin` 会在首次运行时自动创建
+1. `virtual_disk.bin` 首次运行自动创建
 2. 格式化磁盘会清除所有数据
-3. 文件名最大长度24字节（UTF-8编码）
-4. 单文件最大约66KB
+3. 文件名最大 24 字节（UTF-8）
+4. 单文件最大约 66KB
 
-## 📝 开发日志
+## 📚 文档
 
-- 2025-01-03: 项目初始化，完成核心模块设计
-- 实现虚拟磁盘和位图管理
-- 实现文件系统和混合索引
-- 实现LRU缓冲区管理
-- 实现进程管理和RR调度
-- 实现共享内存和条件变量
-- 完成前端可视化界面
+- [使用说明](docs/使用说明.md) - 详细操作指南
+- [课设报告](docs/课设报告.md) - 完整设计报告
+- [题目要求](docs/题目.md) - 课设题目
 
-## 📚 参考资料
+## 📝 参考资料
 
-1. 《操作系统概念》(Operating System Concepts)
-2. 《现代操作系统》(Modern Operating Systems)
-3. Linux文件系统设计
-4. Flask官方文档
-
-## 👥 团队分工
-
-请根据实际情况填写团队成员和分工...
+1. 《计算机操作系统》汤小丹等
+2. 《Operating System Concepts》Silberschatz
+3. Flask 官方文档
+4. React 官方文档
 
 ---
 

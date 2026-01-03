@@ -38,6 +38,19 @@ class CommandType(Enum):
     INFO = 'info'
     OPEN = 'open'
     CLOSE = 'close'
+    # 扩展命令
+    READ_BLOCK = 'readblock'     # 读取特定块
+    WRITE_BLOCK = 'writeblock'   # 写入特定块
+    VIEW_INODE = 'inode'         # 查看iNode
+    FORMAT_DISK = 'format'       # 格式化磁盘
+    SHM_CREATE = 'shm_create'    # 创建共享内存
+    SHM_READ = 'shm_read'        # 读取共享内存
+    SHM_WRITE = 'shm_write'      # 写入共享内存
+    SHM_LIST = 'shm_list'        # 列出共享内存
+    LONG_TASK = 'longtask'       # 长任务（用于演示调度）
+    SCHED_STATUS = 'sched_status'  # 调度器状态
+    SCHED_START = 'sched_start'    # 启动调度器
+    SCHED_STOP = 'sched_stop'      # 停止调度器
 
 
 @dataclass

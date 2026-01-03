@@ -42,6 +42,13 @@ export function CreateFileModal({ isOpen, onClose, onSubmit }: CreateFileModalPr
     onClose();
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey && filename.trim()) {
+      e.preventDefault();
+      handleSubmit();
+    }
+  };
+
   return (
     <Modal title="新建文件" isOpen={isOpen} onClose={onClose}>
       <div className="modal-body">
@@ -51,6 +58,7 @@ export function CreateFileModal({ isOpen, onClose, onSubmit }: CreateFileModalPr
             type="text"
             value={filename}
             onChange={e => setFilename(e.target.value)}
+            onKeyDown={handleKeyDown}
             placeholder="example.txt"
             autoFocus
           />
@@ -88,6 +96,13 @@ export function CreateDirModal({ isOpen, onClose, onSubmit }: CreateDirModalProp
     onClose();
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && dirname.trim()) {
+      e.preventDefault();
+      handleSubmit();
+    }
+  };
+
   return (
     <Modal title="新建目录" isOpen={isOpen} onClose={onClose}>
       <div className="modal-body">
@@ -97,6 +112,7 @@ export function CreateDirModal({ isOpen, onClose, onSubmit }: CreateDirModalProp
             type="text"
             value={dirname}
             onChange={e => setDirname(e.target.value)}
+            onKeyDown={handleKeyDown}
             placeholder="new_folder"
             autoFocus
           />

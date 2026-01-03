@@ -41,6 +41,12 @@ export interface SchedulerStats {
   preemptions: number;
   cpu_utilization: number;
   time_quantum: number;
+  current_process: number | null;
+  ready_queue_size: number;
+  time_slices_used: number;
+  total_schedules: number;
+  uptime: number;
+  idle_time: number;
 }
 
 export interface SystemStats {
@@ -79,6 +85,8 @@ export interface Process {
   state: 'NEW' | 'READY' | 'RUNNING' | 'BLOCKED' | 'TERMINATED';
   command: string | null;
   cpu_time: number;
+  priority?: number;
+  remaining_time?: number;
   result?: unknown;
 }
 
@@ -86,7 +94,12 @@ export interface Process {
 export interface BufferPage {
   page_id: number;
   block_id: number;
+  owner: number;
   state: string;
+  is_pinned: boolean;
+  access_time: number;
+  access_count: number;
+  data_preview: string;
 }
 
 // 调度事件类型
@@ -114,6 +127,8 @@ export interface ApiResponse<T = unknown> {
 
 export interface FilesResponse extends ApiResponse {
   files: FileEntry[];
+  current_path?: string;
+  can_go_back?: boolean;
 }
 
 export interface FileReadResponse extends ApiResponse {

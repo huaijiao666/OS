@@ -137,7 +137,7 @@ class RRScheduler:
                 self.ready_queue.remove(pid)
     
     def _scheduler_loop(self):
-        """调度器主循环"""
+        """调度器主循环 - 时间片轮转调度"""
         while True:
             with self.condition:
                 # 检查状态
@@ -149,21 +149,44 @@ class RRScheduler:
                     if self.state == SchedulerState.STOPPED:
                         return
                 
-                # 获取下一个要调度的进程
-                next_pid = self._select_next_process()
-                
-                if next_pid is None:
-                    # 没有就绪进程，等待
-                    idle_start = time.time()
-                    self.condition.wait(timeout=0.1)
-                    self.stats['idle_time'] += time.time() - idle_start
-                    continue
-                
-                # 调度新进程
-                self._dispatch(next_pid)
+                # 如果当前没有运行的进程，选择下一个
+                if self.current_pid is None:
+                    next_pid = self._select_next_process()
+                    
+                    if next_pid is None:
+                        # 没有就绪进程，等待
+                        idle_start = time.time()
+                        self.condition.wait(timeout=0.1)
+                        self.stats['idle_time'] += time.time() - idle_start
+                        continue
+                    
+                    # 调度新进程
+                    self._dispatch(next_pid)
+                    # 通知等待的进程线程
+                    self.condition.notify_all()
             
-            # 让进程运行一个时间片
-            self._run_time_slice()
+            # 等待一个时间片
+            time.sleep(self.time_quantum / 1000.0)
+            
+            # 时间片结束，检查是否需要切换
+            with self.condition:
+                if self.current_pid is not None:
+                    # 检查进程状态
+                    process = self.process_manager.get_process(self.current_pid)
+                    if process:
+                        if process.state == ProcessState.TERMINATED:
+                            self._log_event('complete', self.current_pid, f'进程 {self.current_pid} 完成')
+                            self.current_pid = None
+                        elif process.state == ProcessState.RUNNING:
+                            # 时间片用完，如果有其他进程等待，进行抢占
+                            if len(self.ready_queue) > 0:
+                                self._preempt_current()
+                            # 否则继续让当前进程运行
+                    else:
+                        self.current_pid = None
+                    
+                    self.stats['time_slices_used'] += 1
+                    self.condition.notify_all()
     
     def _select_next_process(self) -> Optional[int]:
         """选择下一个要运行的进程（RR算法）"""
@@ -253,8 +276,14 @@ class RRScheduler:
         # 模拟时间片运行
         slice_time = self.time_quantum / 1000.0  # 转换为秒
         
+        # 记录时间片开始
+        self._log_event('slice_start', pid, f'进程 {pid} 开始时间片 ({self.time_quantum}ms)')
+        
         # 分段睡眠，以便响应停止请求
         slice_start = time.time()
+        check_interval = 0.01  # 10ms 检查间隔
+        elapsed_checks = 0
+        
         while time.time() - slice_start < slice_time:
             if self.state == SchedulerState.STOPPED:
                 return
@@ -271,10 +300,18 @@ class RRScheduler:
                 self.current_pid = None
                 return
             
-            time.sleep(0.01)  # 10ms 检查间隔
+            time.sleep(check_interval)
+            elapsed_checks += 1
+            
+            # 每100ms记录一次进度（用于可视化）
+            if elapsed_checks % 10 == 0:
+                elapsed = time.time() - slice_start
+                progress = min(100, elapsed / slice_time * 100)
+                self._log_event('slice_progress', pid, f'进程 {pid} 时间片进度: {progress:.0f}%')
         
         # 时间片用完，更新统计
         self.stats['time_slices_used'] += 1
+        self._log_event('slice_end', pid, f'进程 {pid} 时间片用完')
         
         # 检查进程状态
         process = self.process_manager.get_process(pid)
