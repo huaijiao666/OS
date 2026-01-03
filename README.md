@@ -17,23 +17,21 @@
 ## 🏗️ 项目架构
 
 ```
-os_filesystem/
-├── app.py                 # Flask后端主程序
-├── config.py              # 全局配置文件
-├── requirements.txt       # Python依赖
-├── virtual_disk.bin       # 虚拟磁盘文件（运行时生成）
-├── core/                  # 核心模块目录
-│   ├── __init__.py       # 模块初始化
-│   ├── disk.py           # 虚拟磁盘模块
-│   ├── filesystem.py     # 文件系统模块
-│   ├── buffer.py         # 内存缓冲页管理
-│   ├── process.py        # 进程管理模块
-│   ├── scheduler.py      # RR调度器模块
-│   └── ipc.py            # 进程间通信（共享内存）
-└── static/               # 前端静态文件
-    ├── index.html        # 主页面
-    ├── styles.css        # 样式表
-    └── app.js            # 前端JavaScript
+OS-Project/
+├── backend/                  # Flask 后端（纯 API + WebSocket）
+│   ├── app.py               # 主入口，提供 /api/* 与 Socket.IO
+│   ├── config.py            # 全局配置
+│   ├── core/                # 内核模拟模块（磁盘/文件系统/进程/调度/IPC）
+│   └── pyproject.toml       # Python 依赖与配置
+└── frontend/                # React 前端（Vite + TypeScript）
+    ├── index.html           # Vite 入口文件
+    ├── package.json         # 前端依赖与脚本
+    ├── vite.config.ts       # 开发代理到 http://localhost:3456
+    └── src/                 # 组件与样式
+        ├── App.tsx
+        ├── components/
+        ├── services/api.ts  # 与后端交互
+        └── styles/index.css # 迁移的原样式表
 ```
 
 ## 🔧 技术栈
@@ -46,8 +44,8 @@ os_filesystem/
 - **threading** - 多线程支持
 
 ### 前端
-- **原生HTML5/CSS3/JavaScript** - 无框架依赖
-- **Socket.IO Client** - WebSocket客户端
+- **React + TypeScript (Vite)** - 组件化单页应用
+- **Socket.IO Client** - WebSocket 客户端
 - **CSS Grid/Flexbox** - 现代布局
 - **CSS Variables** - 主题定制
 
@@ -59,17 +57,28 @@ os_filesystem/
 
 ### 2. 安装依赖
 ```bash
-cd os_filesystem
-pip install -r requirements.txt
+# 后端
+cd backend
+pip install -e .
+
+# 前端
+cd ../frontend
+npm install
 ```
 
-### 3. 运行程序
+### 3. 启动服务
 ```bash
-python app.py
+# 后端 API (Flask + Socket.IO)
+cd backend
+python app.py  # 默认监听 http://localhost:3456
+
+# 前端 (Vite 开发服务器)
+cd ../frontend
+npm run dev    # 默认 http://localhost:5173，经 vite.config.ts 代理 /api 与 /socket.io
 ```
 
 ### 4. 访问界面
-打开浏览器访问: http://localhost:5000
+浏览器打开 http://localhost:5173 （生产环境请先 npm run build 再用静态服务器托管 dist/）
 
 ## 🎯 功能模块详解
 

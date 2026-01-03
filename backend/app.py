@@ -9,7 +9,7 @@ import sys
 import json
 import time
 import threading
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 
@@ -25,10 +25,10 @@ from core.scheduler import RRScheduler
 from core.ipc import SharedMemoryManager
 
 
-# 创建Flask应用
-app = Flask(__name__, static_folder='static', static_url_path='')
+# 创建Flask应用 (纯API模式，前后端分离)
+app = Flask(__name__)
 app.config['SECRET_KEY'] = 'os_filesystem_2025'
-CORS(app)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # 初始化核心组件
@@ -128,13 +128,6 @@ process_manager.register_handler(CommandType.CD, handle_cd)
 process_manager.register_handler(CommandType.INFO, handle_file_info)
 process_manager.register_handler(CommandType.OPEN, handle_open_file)
 process_manager.register_handler(CommandType.CLOSE, handle_close_file)
-
-
-# ==================== 静态文件路由 ====================
-@app.route('/')
-def index():
-    """返回前端页面"""
-    return send_from_directory('static', 'index.html')
 
 
 # ==================== 文件系统API ====================
@@ -613,15 +606,15 @@ if __name__ == '__main__':
     scheduler.start()
     
     print("=" * 50)
-    print("操作系统课程设计 - 文件系统模拟器")
+    print("操作系统课程设计 - 文件系统模拟器 API 服务")
     print("=" * 50)
-    print(f"磁盘大小: {DISK_SIZE} 字节 ({BLOCK_COUNT} 块 × {BLOCK_SIZE} 字节)")
-    print(f"缓冲区大小: {BUFFER_PAGE_COUNT} 页 × {BUFFER_PAGE_SIZE} 字节")
+    print(f"磁盘大小: {DISK_SIZE} 字节 ({BLOCK_COUNT} 块 x {BLOCK_SIZE} 字节)")
+    print(f"缓冲区大小: {BUFFER_PAGE_COUNT} 页 x {BUFFER_PAGE_SIZE} 字节")
     print(f"时间片: {TIME_QUANTUM} 毫秒")
     print("=" * 50)
-    print("访问 http://localhost:5000 打开管理界面")
+    print("API/SocketIO: http://localhost:3456 (前后端分离模式)")
+    print("前端由独立 React/Vite 项目提供，需自行启动前端服务")
     print("=" * 50)
     
     # 启动Flask应用
-    socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
-
+    socketio.run(app, host='0.0.0.0', port=3456, debug=False, allow_unsafe_werkzeug=True)
