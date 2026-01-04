@@ -68,36 +68,52 @@ export default function ProcessPanel({ showToast }: ProcessPanelProps) {
           marginBottom: '16px'
         }}>
           <h4 style={{ margin: '0 0 12px 0' }}>进程状态转换图</h4>
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center',
-            gap: '8px',
-            flexWrap: 'wrap',
-            fontSize: '12px'
-          }}>
-            <div style={{ padding: '8px 16px', background: '#a4b0be', color: 'white', borderRadius: '4px' }}>
-              NEW ({stateCounts.NEW})
-            </div>
-            <span>→</span>
-            <div style={{ padding: '8px 16px', background: '#ffa502', color: 'white', borderRadius: '4px' }}>
-              READY ({stateCounts.READY})
-            </div>
-            <span>⇄</span>
-            <div style={{ padding: '8px 16px', background: '#2ed573', color: 'white', borderRadius: '4px' }}>
-              RUNNING ({stateCounts.RUNNING})
-            </div>
-            <span>→</span>
-            <div style={{ padding: '8px 16px', background: '#576574', color: 'white', borderRadius: '4px' }}>
-              TERMINATED ({stateCounts.TERMINATED})
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginLeft: '16px' }}>
-              <span>↓ ↑</span>
-              <div style={{ padding: '8px 16px', background: '#ff4757', color: 'white', borderRadius: '4px' }}>
-                BLOCKED ({stateCounts.BLOCKED})
-              </div>
-            </div>
-          </div>
+          {/* 完全使用SVG绘制的状态转换图 */}
+          <svg width="100%" height="140" viewBox="0 0 600 140" style={{ display: 'block', margin: '0 auto' }}>
+            <defs>
+              <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+                <polygon points="0 0, 8 2.5, 0 5" fill="#888" />
+              </marker>
+            </defs>
+            
+            {/* NEW 状态框 */}
+            <rect x="20" y="50" width="80" height="36" rx="4" fill="#a4b0be" />
+            <text x="60" y="73" textAnchor="middle" fill="white" fontSize="12">NEW ({stateCounts.NEW})</text>
+            
+            {/* READY 状态框 */}
+            <rect x="160" y="50" width="100" height="36" rx="4" fill="#ffa502" />
+            <text x="210" y="73" textAnchor="middle" fill="white" fontSize="12">READY ({stateCounts.READY})</text>
+            
+            {/* RUNNING 状态框 */}
+            <rect x="320" y="50" width="110" height="36" rx="4" fill="#2ed573" />
+            <text x="375" y="73" textAnchor="middle" fill="white" fontSize="12">RUNNING ({stateCounts.RUNNING})</text>
+            
+            {/* TERMINATED 状态框 */}
+            <rect x="490" y="50" width="100" height="36" rx="4" fill="#576574" />
+            <text x="540" y="73" textAnchor="middle" fill="white" fontSize="12">TERMINATED ({stateCounts.TERMINATED})</text>
+            
+            {/* BLOCKED 状态框 - 在READY和RUNNING下方中间 */}
+            <rect x="230" y="110" width="110" height="28" rx="4" fill="#ff4757" />
+            <text x="285" y="129" textAnchor="middle" fill="white" fontSize="12">BLOCKED ({stateCounts.BLOCKED})</text>
+            
+            {/* 箭头: NEW → READY */}
+            <line x1="100" y1="68" x2="155" y2="68" stroke="#888" strokeWidth="1.5" markerEnd="url(#arrowhead)" />
+            
+            {/* 箭头: READY → RUNNING (上方) */}
+            <line x1="260" y1="60" x2="315" y2="60" stroke="#888" strokeWidth="1.5" markerEnd="url(#arrowhead)" />
+            
+            {/* 箭头: RUNNING → READY (下方，抢占) */}
+            <line x1="320" y1="76" x2="265" y2="76" stroke="#888" strokeWidth="1.5" markerEnd="url(#arrowhead)" />
+            
+            {/* 箭头: RUNNING → TERMINATED */}
+            <line x1="430" y1="68" x2="485" y2="68" stroke="#888" strokeWidth="1.5" markerEnd="url(#arrowhead)" />
+            
+            {/* 箭头: RUNNING → BLOCKED */}
+            <line x1="375" y1="86" x2="320" y2="108" stroke="#888" strokeWidth="1.5" markerEnd="url(#arrowhead)" />
+            
+            {/* 箭头: BLOCKED → READY */}
+            <line x1="250" y1="110" x2="210" y2="90" stroke="#888" strokeWidth="1.5" markerEnd="url(#arrowhead)" />
+          </svg>
         </div>
 
         <div className="process-toolbar" style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>

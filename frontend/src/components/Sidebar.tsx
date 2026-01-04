@@ -81,6 +81,18 @@ const navItems: { panel: PanelType; label: string; icon: JSX.Element }[] = [
       </svg>
     ),
   },
+  {
+    panel: 'ipc',
+    label: '进程通信',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <circle cx="5" cy="12" r="3"/>
+        <circle cx="19" cy="12" r="3"/>
+        <line x1="8" y1="12" x2="16" y2="12"/>
+        <polyline points="13 9 16 12 13 15"/>
+      </svg>
+    ),
+  },
 ];
 
 export default function Sidebar({ currentPanel, onPanelChange, isOnline }: SidebarProps) {

@@ -39,6 +39,16 @@ process_manager = ProcessManager()
 scheduler = RRScheduler(process_manager)
 shm_manager = SharedMemoryManager()
 
+# 将调度事件推送给前端
+def _emit_scheduler_event(evt: dict):
+    try:
+        socketio.emit('scheduler_event', evt)
+    except Exception:
+        pass
+
+
+scheduler.set_event_emitter(_emit_scheduler_event)
+
 # 设置文件操作进度回调（用于可视化延时）
 def on_file_progress(progress_info):
     """文件操作进度回调"""
@@ -709,19 +719,38 @@ def terminate_process(pid):
     return jsonify({'success': success})
 
 
+def _compute_steps_for_duration(duration_seconds: float) -> int:
+    """按当前时间片推导步数，使每步不超过一个时间片"""
+    quantum_sec = max(0.01, scheduler.time_quantum / 1000.0)
+    return max(1, min(1000, int((duration_seconds / quantum_sec) + 0.999)))
+
+
 @app.route('/api/processes/longtask', methods=['POST'])
 def create_long_task():
     """创建长时间运行的任务（用于演示调度）"""
     data = request.get_json() or {}
-    duration = data.get('duration', 5)
-    steps = data.get('steps', 10)
-    task_name = data.get('name', f'长任务')
+    try:
+        duration = float(data.get('duration', 3))
+    except Exception:
+        duration = 3.0
+    task_name = data.get('name', '长任务')
+    steps = data.get('steps')
+    try:
+        steps = int(steps) if steps is not None else None
+    except Exception:
+        steps = None
+    if steps is None or steps <= 0:
+        steps = _compute_steps_for_duration(duration)
     
     pid = process_manager.create_process(
         name=task_name,
         command=CommandType.LONG_TASK,
         args={'duration': duration, 'steps': steps, 'name': task_name}
     )
+    # 初始化剩余时间（毫秒）
+    proc = process_manager.get_process(pid)
+    if proc:
+        proc.remaining_time = int(max(0, duration) * 1000)
     
     # 将进程添加到调度器的就绪队列
     scheduler.add_process(pid)
@@ -757,75 +786,53 @@ def execute_scheduled_long_task(pid: int, duration: float, steps: int, task_name
         'progress': 0
     })
     
-    time_per_step = duration / steps
-    time_quantum_sec = scheduler.time_quantum / 1000.0  # 将毫秒转换为秒
+    time_quantum_sec = max(0.01, scheduler.time_quantum / 1000.0)  # 将毫秒转换为秒
+    # 将每步时间限制为一个时间片，步数足够覆盖总时长
+    time_per_step = time_quantum_sec
+    steps = max(1, int((duration / time_per_step) + 0.999))
     completed_steps = 0
+    if process:
+        process.remaining_time = int(max(0, duration) * 1000)
     
+    last_slice_seen = -1
     while completed_steps < steps:
         # 检查进程状态
         process = process_manager.get_process(pid)
         if not process or process.state == ProcessState.TERMINATED:
             break
-        
-        # 等待被调度到（使用条件变量）
-        waited = False
+
+        # 等待一个新的时间片并且当前进程被调度
         with scheduler.condition:
-            # 等待成为当前运行的进程
-            wait_start = time.time()
-            max_wait = 10.0  # 最大等待10秒
-            
-            while scheduler.current_pid != pid:
-                # 检查调度器状态 - 如果调度器没运行，等待它启动
-                if scheduler.state == SchedulerState.STOPPED:
-                    # 调度器未启动，等待启动
-                    scheduler.condition.wait(timeout=0.5)
-                    waited = True
-                    if time.time() - wait_start > max_wait:
-                        break  # 超时，继续执行（允许调试）
-                    continue
-                
-                process = process_manager.get_process(pid)
-                if not process or process.state == ProcessState.TERMINATED:
-                    return  # 进程被终止
-                
-                # 等待调度器通知
-                scheduler.condition.wait(timeout=0.1)
-                waited = True
-            
-            # 被调度到了，设置为运行状态
+            scheduler.condition.wait_for(
+                lambda: scheduler.state == SchedulerState.RUNNING
+                and scheduler.current_pid == pid
+                and scheduler.stats['time_slices_used'] > last_slice_seen,
+                timeout=2.0
+            )
+            current_slice = scheduler.stats['time_slices_used']
+            # 若未满足条件则重试
+            if scheduler.current_pid != pid or scheduler.state != SchedulerState.RUNNING or current_slice == last_slice_seen:
+                continue
+            # 确认被调度，设置为运行态
+            process = process_manager.get_process(pid)
             if process and process.state != ProcessState.TERMINATED:
                 process.state = ProcessState.RUNNING
-        
-        # 执行工作 - 在时间片内完成尽可能多的步骤
-        slice_start = time.time()
-        while (time.time() - slice_start) < time_quantum_sec and completed_steps < steps:
-            # 检查是否被抢占
-            if scheduler.current_pid != pid and scheduler.state == SchedulerState.RUNNING:
-                break  # 被其他进程抢占
-            
-            # 执行一个步骤
-            step_start = time.time()
-            time.sleep(min(time_per_step, 0.1))  # 每步最多0.1秒
-            completed_steps += 1
-            
-            # 更新进程CPU时间
-            process = process_manager.get_process(pid)
-            if process:
-                process.cpu_time += time.time() - step_start
-            
-            # 发送进度更新
-            progress = (completed_steps / steps) * 100
-            socketio.emit('process_progress', {
-                'pid': pid,
-                'name': task_name,
-                'status': 'running',
-                'progress': progress,
-                'current_step': completed_steps,
-                'total_steps': steps
-            })
-            
-            if completed_steps >= steps:
-                break
+
+        # 在该时间片内执行一个步骤
+        time.sleep(min(time_per_step, 0.02))
+        completed_steps += 1
+        last_slice_seen = current_slice
+
+        # 发送进度更新（剩余时间由调度器扣减）
+        progress = (completed_steps / steps) * 100
+        socketio.emit('process_progress', {
+            'pid': pid,
+            'name': task_name,
+            'status': 'running',
+            'progress': progress,
+            'current_step': completed_steps,
+            'total_steps': steps
+        })
     
     # 任务完成
     with process_manager.lock:
@@ -833,6 +840,7 @@ def execute_scheduled_long_task(pid: int, duration: float, steps: int, task_name
         if process:
             process.state = ProcessState.TERMINATED
             process.end_time = time.time()
+            process.remaining_time = 0
     
     scheduler.notify_process_terminated(pid)
     
@@ -849,17 +857,49 @@ def create_batch_tasks():
     """批量创建任务（用于演示多进程调度）"""
     data = request.get_json() or {}
     count = data.get('count', 3)
-    duration = data.get('duration', 3)
+    duration_raw = data.get('duration', 3)
+    durations_raw = data.get('durations')
     steps = 5
+
+    def normalize_duration(val, fallback):
+        try:
+            v = float(val)
+        except (TypeError, ValueError):
+            v = fallback
+        try:
+            v = float(v)
+        except Exception:
+            return None
+        # 如果数值大于100，按毫秒处理（300 -> 0.3s，3000 -> 3s）
+        if v > 100:
+            v = v / 1000.0
+        return max(0.05, v)
+
+    # 组装每个任务的时长，兼容 duration 传数组的情况
+    durations_list = []
+    source_list = durations_raw if isinstance(durations_raw, list) else (duration_raw if isinstance(duration_raw, list) else None)
+
+    if source_list is not None:
+        for i in range(count):
+            src = source_list[i] if i < len(source_list) else duration_raw
+            norm = normalize_duration(src, duration_raw)
+            durations_list.append(norm if norm is not None else 0.3)
+    else:
+        norm = normalize_duration(duration_raw, 3)
+        durations_list = [norm if norm is not None else 0.3] * count
     
     pids = []
     for i in range(count):
         task_name = f'批量任务_{i+1}'
+        steps_for_task = _compute_steps_for_duration(durations_list[i])
         pid = process_manager.create_process(
             name=task_name,
             command=CommandType.LONG_TASK,
-            args={'duration': duration, 'steps': steps, 'name': task_name}
+            args={'duration': durations_list[i], 'steps': steps_for_task, 'name': task_name}
         )
+        proc = process_manager.get_process(pid)
+        if proc:
+            proc.remaining_time = int(max(0, durations_list[i]) * 1000)
         scheduler.add_process(pid)
         pids.append(pid)
     
@@ -875,7 +915,7 @@ def create_batch_tasks():
         
         thread = threading.Thread(
             target=run_task, 
-            args=(pid, duration, steps, task_name), 
+            args=(pid, durations_list[i], _compute_steps_for_duration(durations_list[i]), task_name), 
             daemon=True
         )
         thread.start()
@@ -883,6 +923,7 @@ def create_batch_tasks():
     return jsonify({
         'success': True,
         'pids': pids,
+        'durations_used': durations_list,
         'message': f'已创建 {count} 个任务'
     })
 
@@ -930,6 +971,13 @@ def scheduler_events():
     count = request.args.get('count', 20, type=int)
     events = scheduler.get_events(count)
     return jsonify({'events': events})
+
+
+@app.route('/api/scheduler/events/clear', methods=['POST'])
+def scheduler_clear_events():
+    """清空调度事件"""
+    scheduler.clear_events()
+    return jsonify({'success': True, 'message': '已清空调度事件'})
 
 
 @app.route('/api/scheduler/gantt', methods=['GET'])
