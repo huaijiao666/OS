@@ -8,6 +8,7 @@ import BufferPanel from './components/panels/BufferPanel';
 import ProcessPanel from './components/panels/ProcessPanel';
 import SchedulerPanel from './components/panels/SchedulerPanel';
 import TerminalPanel from './components/panels/TerminalPanel';
+import IPCPanel from './components/panels/IPCPanel';
 import Toast from './components/Toast';
 import { connectSocket, getStats, formatDisk } from './services/api';
 import type { PanelType, SystemStats, LogEntry } from './types';
@@ -172,6 +173,7 @@ function App() {
     process: '进程管理',
     scheduler: '调度器',
     terminal: '终端',
+    ipc: '进程间通信',
   };
 
   const renderPanel = () => {
@@ -190,6 +192,8 @@ function App() {
         return <SchedulerPanel stats={stats} showToast={showToast} />;
       case 'terminal':
         return <TerminalPanel />;
+      case 'ipc':
+        return <IPCPanel showToast={showToast} />;
       default:
         return <Dashboard stats={stats} logs={logs} onClearLogs={() => setLogs([])} showToast={showToast} onFilesChange={triggerFilesRefresh} />;
     }

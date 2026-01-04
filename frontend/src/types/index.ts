@@ -154,5 +154,23 @@ export interface SchedulerStatusResponse extends ApiResponse {
   ready_queue: number[];
 }
 
+// 共享内存段类型
+export interface SharedMemorySegment {
+  key: number;
+  size: number;
+  attached_count: number;
+  read_count: number;
+  write_count: number;
+  create_time: number;
+  last_access: number;
+  data_preview?: string;
+}
+
+export interface IPCStatusResponse extends ApiResponse {
+  segments: SharedMemorySegment[];
+  total_segments: number;
+  total_memory: number;
+}
+
 // 面板类型
-export type PanelType = 'dashboard' | 'files' | 'disk' | 'buffer' | 'process' | 'scheduler' | 'terminal';
+export type PanelType = 'dashboard' | 'files' | 'disk' | 'buffer' | 'process' | 'scheduler' | 'terminal' | 'ipc';

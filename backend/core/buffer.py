@@ -380,6 +380,22 @@ class BufferManager:
     def get_swap_log(self) -> List[Dict]:
         """获取置换日志"""
         return self.swap_log.copy()
+
+    def access_block(self, block_id: int, process_id: int = 0) -> Dict[str, Any]:
+        """访问单个磁盘块；若不在缓冲中会触发置换（LRU）。"""
+        before_hit = block_id in self.block_to_page
+        data = self.read_page(block_id, process_id)
+        success = data is not None
+        page_id = self.block_to_page.get(block_id) if success else None
+        return {
+            'success': success,
+            'hit': before_hit,
+            'block_id': block_id,
+            'page_id': page_id,
+            'stats': self.get_stats(),
+            'log': self.get_swap_log(),
+            'pages': self.get_buffer_status(),
+        }
     
     def wait_for_page(self, block_id: int, process_id: int, timeout: float = None) -> Optional[int]:
         """

@@ -5,13 +5,15 @@ import type {
   FileReadResponse,
   ProcessesResponse,
   BufferStatusResponse,
+  BufferStats,
+  BufferPage,
   SchedulerStatusResponse,
   ApiResponse,
 } from '../types';
 
 const API_BASE = '';
 
-// HTTP API 调用
+// HTTP API helper
 async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${url}`, {
     ...options,
@@ -23,12 +25,12 @@ async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
   return response.json();
 }
 
-// 系统统计
+// System stats
 export async function getStats(): Promise<SystemStats> {
   return fetchApi<SystemStats>('/api/stats');
 }
 
-// 文件系统API
+// File system APIs
 export async function listFiles(): Promise<FilesResponse> {
   return fetchApi<FilesResponse>('/api/files');
 }
@@ -75,11 +77,21 @@ export async function getCurrentPath(): Promise<ApiResponse & { current_path: st
   return fetchApi('/api/pwd');
 }
 
-export async function getFileInfo(filename: string): Promise<ApiResponse & { name: string; type: string; size: number; block_count: number; blocks: number[]; permissions: number; create_time: number; modify_time: number; is_open: boolean }> {
+export async function getFileInfo(filename: string): Promise<ApiResponse & {
+  name: string;
+  type: string;
+  size: number;
+  block_count: number;
+  blocks: number[];
+  permissions: number;
+  create_time: number;
+  modify_time: number;
+  is_open: boolean;
+}> {
   return fetchApi(`/api/files/${encodeURIComponent(filename)}/info`);
 }
 
-// 磁盘API
+// Disk APIs
 export async function getDiskBitmap(): Promise<{ bitmap: number[]; total: number; used: number; free: number }> {
   return fetchApi('/api/disk/bitmap');
 }
@@ -96,7 +108,7 @@ export async function getDiskInfo() {
   return fetchApi('/api/disk/info');
 }
 
-// 缓冲区API
+// Buffer APIs
 export async function getBufferStatus(): Promise<BufferStatusResponse> {
   return fetchApi<BufferStatusResponse>('/api/buffer/status');
 }
@@ -109,7 +121,22 @@ export async function getBufferLog(): Promise<{ log: Array<{ timestamp: number; 
   return fetchApi('/api/buffer/log');
 }
 
-// 进程API
+export async function accessBufferBlock(blockId: number): Promise<ApiResponse & {
+  success: boolean;
+  hit?: boolean;
+  block_id?: number;
+  page_id?: number | null;
+  stats?: BufferStats;
+  log?: Array<{ timestamp: number; type: string; page_id: number; block_id: number; process_id?: number }>;
+  pages?: BufferPage[];
+}> {
+  return fetchApi('/api/buffer/access', {
+    method: 'POST',
+    body: JSON.stringify({ block_id: blockId }),
+  });
+}
+
+// Process APIs
 export async function getProcesses(): Promise<ProcessesResponse> {
   return fetchApi<ProcessesResponse>('/api/processes');
 }
@@ -125,7 +152,7 @@ export async function terminateProcess(pid: number): Promise<ApiResponse> {
   return fetchApi<ApiResponse>(`/api/processes/${pid}/terminate`, { method: 'POST' });
 }
 
-// 调度器API
+// Scheduler APIs
 export async function getSchedulerStatus(): Promise<SchedulerStatusResponse> {
   return fetchApi<SchedulerStatusResponse>('/api/scheduler/status');
 }
@@ -153,16 +180,20 @@ export async function setTimeQuantum(quantum: number): Promise<ApiResponse> {
   });
 }
 
-export async function getSchedulerEvents(count = 20): Promise<{ events: Array<{ timestamp: number; type: string; pid: number; details: string }> }> {
+export async function getSchedulerEvents(count = 20): Promise<{ events: Array<{ timestamp: number; type: string; pid: number; details: string; remaining_time?: number | string | null }> }> {
   return fetchApi(`/api/scheduler/events?count=${count}`);
+}
+
+export async function clearSchedulerEvents(): Promise<ApiResponse> {
+  return fetchApi<ApiResponse>('/api/scheduler/events/clear', { method: 'POST' });
 }
 
 export async function getGanttData(): Promise<{ gantt: Array<{ pid: number; time: number; type: string }> }> {
   return fetchApi('/api/scheduler/gantt');
 }
 
-// iNode API
-export async function getInodeInfo(inodeId: number): Promise<ApiResponse & { 
+// Inode APIs
+export async function getInodeInfo(inodeId: number): Promise<ApiResponse & {
   inode_id: number;
   type: string;
   type_code: number;
@@ -180,29 +211,63 @@ export async function getInodeInfo(inodeId: number): Promise<ApiResponse & {
   return fetchApi(`/api/inode/${inodeId}`);
 }
 
-export async function listInodes(): Promise<ApiResponse & { 
+export async function listInodes(): Promise<ApiResponse & {
   inodes: Array<{ inode_id: number; type: string; size: number }>;
   total: number;
 }> {
   return fetchApi('/api/inode/list');
 }
 
-// 长任务API
+// Long tasks APIs
 export async function createLongTask(name: string, duration: number, steps = 10): Promise<ApiResponse & { pid: number }> {
   return fetchApi('/api/processes/longtask', {
     method: 'POST',
-    body: JSON.stringify({ name, duration, steps })
+    body: JSON.stringify({ name, duration, steps }),
   });
 }
 
-export async function createBatchTasks(count: number, duration = 3): Promise<ApiResponse & { pids: number[] }> {
+export async function createBatchTasks(count: number, durationOrDurations: number | number[] = 3): Promise<ApiResponse & { pids: number[] }> {
+  const body = Array.isArray(durationOrDurations)
+    ? { count, durations: durationOrDurations }
+    : { count, duration: durationOrDurations };
+
   return fetchApi('/api/processes/batch', {
     method: 'POST',
-    body: JSON.stringify({ count, duration })
+    body: JSON.stringify(body),
   });
 }
 
-// WebSocket 连接
+// IPC / Shared Memory APIs
+export async function getIPCStatus(): Promise<{ segments: Array<{ key: number; size: number; attached_count: number; read_count: number; write_count: number; create_time: number; last_access: number }>; total_segments: number; total_memory: number }> {
+  return fetchApi('/api/shm');
+}
+
+export async function createSharedMemory(size: number): Promise<ApiResponse & { key: number }> {
+  return fetchApi<ApiResponse & { key: number }>('/api/shm', {
+    method: 'POST',
+    body: JSON.stringify({ size }),
+  });
+}
+
+export async function deleteSharedMemory(key: number): Promise<ApiResponse> {
+  return fetchApi(`/api/shm/${key}`, { method: 'DELETE' });
+}
+
+export async function readSharedMemory(key: number, offset = 0, length?: number): Promise<ApiResponse & { data: string; hex: string }> {
+  return fetchApi(`/api/shm/${key}/read`, {
+    method: 'POST',
+    body: JSON.stringify({ offset, length }),
+  });
+}
+
+export async function writeSharedMemory(key: number, data: string, offset = 0): Promise<ApiResponse & { bytes_written: number }> {
+  return fetchApi(`/api/shm/${key}/write`, {
+    method: 'POST',
+    body: JSON.stringify({ data, offset }),
+  });
+}
+
+// WebSocket connection
 let socket: Socket | null = null;
 
 export function connectSocket(): Socket {

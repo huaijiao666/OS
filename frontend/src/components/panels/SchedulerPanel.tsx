@@ -7,8 +7,8 @@ import {
   resumeScheduler,
   setTimeQuantum,
   getSchedulerEvents,
+  clearSchedulerEvents,
   createLongTask,
-  createBatchTasks,
   getSocket,
 } from '../../services/api';
 import type { SystemStats } from '../../types';
@@ -34,7 +34,7 @@ function formatTimestamp(ts: number): string {
 
 export default function SchedulerPanel({ stats, showToast }: SchedulerPanelProps) {
   const [readyQueue, setReadyQueue] = useState<number[]>([]);
-  const [events, setEvents] = useState<Array<{ timestamp: number; type: string; pid: number; details: string }>>([]);
+  const [events, setEvents] = useState<Array<{ timestamp: number; type: string; pid: number; details: string; remaining_time?: number | string | null }>>([]);
   const [quantum, setQuantum] = useState(100);
   const [schedulerStats, setSchedulerStats] = useState<{
     context_switches: number;
@@ -44,6 +44,7 @@ export default function SchedulerPanel({ stats, showToast }: SchedulerPanelProps
     time_slices_used: number;
   } | null>(null);
   const [taskProgress, setTaskProgress] = useState<Map<number, TaskProgress>>(new Map());
+  const [singleDurationMs, setSingleDurationMs] = useState<number>(3000);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -63,8 +64,20 @@ export default function SchedulerPanel({ stats, showToast }: SchedulerPanelProps
 
   const loadEvents = useCallback(async () => {
     try {
-      const data = await getSchedulerEvents(20);
-      setEvents(data.events || []);
+      const data = await getSchedulerEvents(200);
+      setEvents(prev => {
+        const combined = [...prev, ...(data.events || [])];
+        const seen = new Set<string>();
+        const merged: typeof combined = [];
+        for (const e of combined) {
+          const key = `${e.timestamp}-${e.type}-${e.pid}-${e.details}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            merged.push(e);
+          }
+        }
+        return merged.slice(-200); // 保留历史，最多200条
+      });
     } catch (error) {
       console.error('加载调度事件失败:', error);
     }
@@ -151,9 +164,11 @@ export default function SchedulerPanel({ stats, showToast }: SchedulerPanelProps
   const handleCreateTask = useCallback(async () => {
     try {
       const name = `Task_${Date.now() % 10000}`;
-      const result = await createLongTask(name, 5, 10);
+      const durationMs = Math.max(50, singleDurationMs || 50);
+      const durationSec = durationMs / 1000;
+      const result = await createLongTask(name, durationSec, 10);
       if (result.success) {
-        showToast('success', `已创建任务 ${name}，PID: ${result.pid}`);
+        showToast('success', `已创建任务 ${name}，PID: ${result.pid}，时长: ${durationMs}ms`);
         loadStatus();
         loadEvents();
       } else {
@@ -162,22 +177,7 @@ export default function SchedulerPanel({ stats, showToast }: SchedulerPanelProps
     } catch {
       showToast('error', '创建任务失败');
     }
-  }, [showToast, loadStatus, loadEvents]);
-
-  const handleCreateBatch = useCallback(async () => {
-    try {
-      const result = await createBatchTasks(3, 3);
-      if (result.success) {
-        showToast('success', `已创建3个批量任务，PIDs: [${result.pids.join(', ')}]`);
-        loadStatus();
-        loadEvents();
-      } else {
-        showToast('error', '创建批量任务失败');
-      }
-    } catch {
-      showToast('error', '创建批量任务失败');
-    }
-  }, [showToast, loadStatus, loadEvents]);
+  }, [showToast, loadStatus, loadEvents, singleDurationMs]);
 
   const handleSetQuantum = useCallback(async () => {
     if (quantum < 10 || quantum > 1000) {
@@ -221,7 +221,7 @@ export default function SchedulerPanel({ stats, showToast }: SchedulerPanelProps
           </div>
         </div>
 
-        {/* 创建任务按钮 */}
+        {/* 创建单个任务 */}
         <div className="task-controls" style={{ 
           display: 'flex', 
           gap: '8px', 
@@ -233,12 +233,20 @@ export default function SchedulerPanel({ stats, showToast }: SchedulerPanelProps
           <button className="btn-primary" onClick={handleCreateTask}>
             创建单个任务
           </button>
-          <button className="btn-secondary" onClick={handleCreateBatch}>
-            批量创建(3个)
-          </button>
-          <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '12px' }}>
-            提示：创建多个任务可演示时间片轮转调度
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <input
+              type="number"
+              min={50}
+              max={60000}
+              step={50}
+              value={singleDurationMs}
+              onChange={e => setSingleDurationMs(parseInt(e.target.value) || 50)}
+              style={{ width: '110px', padding: '6px 8px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: '6px' }}
+              placeholder="任务时长 ms"
+              title="设置任务时长 (毫秒)"
+            />
+            <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>默认 3000ms，可自行调整</span>
+          </div>
         </div>
 
         <div className="scheduler-stats">
@@ -258,12 +266,12 @@ export default function SchedulerPanel({ stats, showToast }: SchedulerPanelProps
             <span className="sched-stat-value">{schedulerStats?.preemptions ?? 0}</span>
             <span className="sched-stat-label">抢占次数</span>
           </div>
-          <div className="sched-stat">
+          {/* <div className="sched-stat">
             <span className="sched-stat-value">
               {((schedulerStats?.cpu_utilization ?? 0) * 100).toFixed(1)}%
             </span>
             <span className="sched-stat-label">CPU利用率</span>
-          </div>
+          </div> */}
         </div>
 
         {/* 任务进度显示 */}
@@ -331,19 +339,40 @@ export default function SchedulerPanel({ stats, showToast }: SchedulerPanelProps
         </div>
 
         <div className="scheduler-events">
-          <h3>调度事件</h3>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '8px' }}>
+            <h3 style={{ margin: 0, flex: 1 }}>调度事件</h3>
+            <button className="btn-small" onClick={async () => {
+              try {
+                await clearSchedulerEvents();
+                setEvents([]);
+                showToast('info', '调度事件已清空');
+              } catch {
+                showToast('error', '清空失败');
+              }
+            }}>清空</button>
+          </div>
           <div className="event-list">
             {events.length === 0 ? (
               <div style={{ padding: '20px', color: 'var(--text-muted)' }}>暂无事件</div>
             ) : (
-              events.slice().reverse().map((e, index) => (
-                <div key={index} className="event-item">
-                  <span style={{ color: 'var(--text-muted)' }}>{formatTimestamp(e.timestamp)}</span>
-                  <span className={`event-type ${e.type}`}>{e.type}</span>
-                  <span>PID {e.pid}</span>
-                  <span style={{ color: 'var(--text-secondary)' }}>{e.details}</span>
-                </div>
-              ))
+              events.slice().reverse().map((e, index) => {
+                const remainingRaw = e.remaining_time;
+                const remainingMs = typeof remainingRaw === 'string' ? parseFloat(remainingRaw) : remainingRaw;
+                const showRemaining = Number.isFinite(remainingMs as number);
+                return (
+                  <div key={index} className="event-item">
+                    <span style={{ color: 'var(--text-muted)' }}>{formatTimestamp(e.timestamp)}</span>
+                    <span className={`event-type ${e.type}`}>{e.type}</span>
+                    <span>PID {e.pid}</span>
+                    <span style={{ color: 'var(--text-secondary)', flex: 1 }}>{e.details}</span>
+                    {showRemaining && (
+                      <span style={{ color: 'var(--text-muted)', minWidth: '120px', textAlign: 'right' }}>
+                        剩余时间: {(remainingMs as number).toFixed(0)} ms
+                      </span>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
         </div>

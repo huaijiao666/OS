@@ -28,7 +28,7 @@ DOUBLE_INDIRECT = 1      # 二级间接索引
 POINTERS_PER_BLOCK = BLOCK_SIZE // 2  # 每块可存放的指针数（2字节/指针）
 
 # ==================== 内存缓冲配置 ====================
-BUFFER_PAGE_COUNT = 16   # 缓冲页数量 K=16
+BUFFER_PAGE_COUNT = 8    # 缓冲页数量改为 8
 BUFFER_PAGE_SIZE = BLOCK_SIZE  # 缓冲页大小等于盘块大小
 
 # ==================== 进程调度配置 ====================
