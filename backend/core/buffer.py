@@ -396,6 +396,37 @@ class BufferManager:
             'log': self.get_swap_log(),
             'pages': self.get_buffer_status(),
         }
+
+    def rewrite_block(self, block_id: int, process_id: int = 0) -> Dict[str, Any]:
+        """在内存中重写块的原有内容，用于模拟写操作但不改变数据。"""
+        with self.condition:
+            before_hit = block_id in self.block_to_page
+            page_id = self.get_page(block_id, process_id)
+            if page_id is None:
+                return {
+                    'success': False,
+                    'error': '无法加载块到缓冲区',
+                    'stats': self.get_stats(),
+                    'log': self.get_swap_log(),
+                    'pages': self.get_buffer_status(),
+                }
+
+            page = self.pages[page_id]
+            # 不改变数据内容，仅标记为写入过（脏页）
+            page.state = PageState.DIRTY
+            page.access_time = time.time()
+            page.access_count += 1
+            self._log_swap('WRITE', page_id, block_id, process_id)
+
+            return {
+                'success': True,
+                'hit': before_hit,
+                'block_id': block_id,
+                'page_id': page_id,
+                'stats': self.get_stats(),
+                'log': self.get_swap_log(),
+                'pages': self.get_buffer_status(),
+            }
     
     def wait_for_page(self, block_id: int, process_id: int, timeout: float = None) -> Optional[int]:
         """

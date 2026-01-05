@@ -665,6 +665,21 @@ def buffer_access_block():
     return jsonify(result)
 
 
+@app.route('/api/buffer/write', methods=['POST'])
+def buffer_write_block():
+    """在缓冲区中重写指定块的原有内容，标记为脏页但不修改数据。"""
+    data = request.get_json(silent=True) or {}
+    try:
+        block_id = int(data.get('block_id', -1))
+    except Exception:
+        return jsonify({'success': False, 'error': 'block_id 需为整数'}), 400
+    if block_id < 0:
+        return jsonify({'success': False, 'error': 'block_id 必须 >= 0'}), 400
+
+    result = buffer_manager.rewrite_block(block_id)
+    return jsonify(result)
+
+
 # ==================== 进程API ====================
 @app.route('/api/processes', methods=['GET'])
 def list_processes():

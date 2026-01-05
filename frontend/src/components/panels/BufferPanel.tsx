@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect, useCallback } from "react";
-import { getBufferStatus, getBufferLog, flushBuffer, accessBufferBlock } from "../../services/api";
+import { getBufferStatus, getBufferLog, flushBuffer, accessBufferBlock, rewriteBufferBlock } from "../../services/api";
 import type { BufferPage, BufferStats } from "../../types";
 
 interface BufferPanelProps {
@@ -98,6 +98,39 @@ export default function BufferPanel({ showToast }: BufferPanelProps) {
 
   const hitRate = stats ? ((stats.hits / (stats.hits + stats.misses || 1)) * 100).toFixed(1) : "0.0";
 
+  const handleRewriteBlock = useCallback(async () => {
+    if (accessLoading) return;
+    const trimmed = blockInput.trim();
+    if (!trimmed) {
+      showToast("error", "请输入块号");
+      return;
+    }
+    const blockId = Number(trimmed);
+    if (Number.isNaN(blockId) || blockId < 0) {
+      showToast("error", "块号必须是非负整数");
+      return;
+    }
+
+    setAccessLoading(true);
+    try {
+      const res = await rewriteBufferBlock(blockId);
+      if (res.success) {
+        setPages(res.pages || []);
+        setStats(res.stats as BufferStats);
+        setLogs(res.log || []);
+        const hitText = res.hit ? "命中" : "缺页/置换";
+        showToast("success", `写入块 ${blockId}：${hitText}，已标记为脏页`);
+      } else {
+        showToast("error", res.error || "写入失败");
+      }
+    } catch (error) {
+      console.error("写入块失败:", error);
+      showToast("error", "写入块失败");
+    } finally {
+      setAccessLoading(false);
+    }
+  }, [accessLoading, blockInput, showToast]);
+
   return (
     <section className="panel active">
       <div className="panel-header">
@@ -148,6 +181,9 @@ export default function BufferPanel({ showToast }: BufferPanelProps) {
               />
               <button className="btn-primary" onClick={handleAccessBlock} disabled={accessLoading}>
                 {accessLoading ? "访问中..." : "访问块并可能置换"}
+              </button>
+              <button className="btn-secondary" onClick={handleRewriteBlock} disabled={accessLoading}>
+                {accessLoading ? "写入中..." : "写入内存(不改数据)"}
               </button>
               <button className="btn-secondary" onClick={loadStatus}>刷新</button>
               <button className="btn-primary" onClick={handleFlush}>写回脏页</button>
